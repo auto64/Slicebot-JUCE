@@ -1,6 +1,6 @@
 #include <JuceHeader.h>
 #include "AudioEngine.h"
-#include "AudioFileIO.h"
+#include "DeterministicPreviewHarness.h"
 #include "MainComponent.h"
 
 class SliceBotJUCEApplication final : public juce::JUCEApplication
@@ -11,16 +11,20 @@ public:
 
     void initialise (const juce::String&) override
     {
-        AudioFileIO::runSmokeTestAtStartup();
-
         audioEngine.restoreState();
         audioEngine.start();
+
+        previewHarness = std::make_unique<DeterministicPreviewHarness> (audioEngine.getDeviceManager());
+        previewHarness->run();
 
         mainWindow.reset (new MainWindow (audioEngine));
     }
 
     void shutdown() override
     {
+        mainWindow = nullptr;
+        previewHarness = nullptr;
+
         audioEngine.saveState();
         audioEngine.stop();
         mainWindow = nullptr;
@@ -48,6 +52,7 @@ private:
     };
 
     AudioEngine audioEngine;
+    std::unique_ptr<DeterministicPreviewHarness> previewHarness;
     std::unique_ptr<MainWindow> mainWindow;
 };
 

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<JUCERPROJECT id="L9Xboq" name="SlicebotJUCEPhase0" projectType="guiapp" useAppConfig="0"
+              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" bundleIdentifier="com.auto64.slicebotjuce">
+  <MAINGROUP id="wSbmOg" name="SlicebotJUCEPhase0">
+    <GROUP id="{FB906DED-8C2D-2546-FAB3-946F3F9BA6B2}" name="Source">
+      <FILE id="b0MT9S" name="FlatTileLookAndFeel.cpp" compile="1" resource="0"
+            file="Source/FlatTileLookAndFeel.cpp"/>
+      <FILE id="YZiMYm" name="FlatTileLookAndFeel.h" compile="0" resource="0"
+            file="Source/FlatTileLookAndFeel.h"/>
+      <FILE id="Axsg6h" name="LiveRecorderModuleView.cpp" compile="1" resource="0"
+            file="Source/LiveRecorderModuleView.cpp"/>
+      <FILE id="DRL62E" name="LiveRecorderModuleView.h" compile="0" resource="0"
+            file="Source/LiveRecorderModuleView.h"/>
+      <FILE id="C7Vee8" name="RecordingBus.cpp" compile="1" resource="0"
+            file="Source/RecordingBus.cpp"/>
+      <FILE id="NLLBZl" name="RecordingBus.h" compile="0" resource="0" file="Source/RecordingBus.h"/>
+      <FILE id="WZDGjb" name="RecordingWriter.cpp" compile="1" resource="0"
+            file="Source/RecordingWriter.cpp"/>
+      <FILE id="FZRto2" name="RecordingWriter.h" compile="0" resource="0"
+            file="Source/RecordingWriter.h"/>
+      <FILE id="nK9nSw" name="RecordingModule.cpp" compile="1" resource="0"
+            file="Source/RecordingModule.cpp"/>
+      <FILE id="utjvax" name="RecordingModule.h" compile="0" resource="0"
+            file="Source/RecordingModule.h"/>
+      <FILE id="s5jxRL" name="RecordingCassette.cpp" compile="1" resource="0"
+            file="Source/RecordingCassette.cpp"/>
+      <FILE id="WpDyT3" name="RecordingCassette.h" compile="0" resource="0"
+            file="Source/RecordingCassette.h"/>
+      <FILE id="HU47LT" name="AppProperties.cpp" compile="1" resource="0"
+            file="Source/AppProperties.cpp"/>
+      <FILE id="rDDK1c" name="AppProperties.h" compile="0" resource="0" file="Source/AppProperties.h"/>
+      <FILE id="W1Pixr" name="MainComponent.cpp" compile="1" resource="0"
+            file="Source/MainComponent.cpp"/>
+      <FILE id="hWcA5i" name="MainComponent.h" compile="0" resource="0" file="Source/MainComponent.h"/>
+      <FILE id="FJLAfb" name="Main.cpp" compile="1" resource="0" file="Source/Main.cpp"/>
+      <FILE id="esxUaB" name="AudioEngine.cpp" compile="1" resource="0" file="Source/AudioEngine.cpp"/>
+      <FILE id="CxCwJH" name="AudioEngine.h" compile="0" resource="0" file="Source/AudioEngine.h"/>
+    </GROUP>
+  </MAINGROUP>
+  <MODULES>
+    <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_devices" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_formats" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_processors_headless" showAllCode="1" useLocalCopy="0"
+            useGlobalPath="1"/>
+    <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+  </MODULES>
+  <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1"/>
+  <EXPORTFORMATS>
+    <XCODE_MAC targetFolder="Builds/MacOSX" extraDefs="JUCE_DISABLE_ASSERTIONS=1&#10;"
+               microphonePermissionNeeded="1">
+      <CONFIGURATIONS>
+        <CONFIGURATION isDebug="1" name="Debug" targetName="SlicebotJUCE_Phase0h"/>
+        <CONFIGURATION isDebug="0" name="Release" targetName="SlicebotJUCE_Phase0h"/>
+      </CONFIGURATIONS>
+      <MODULEPATHS>
+        <MODULEPATH id="juce_core" path="../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_data_structures" path="../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_events" path="../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_graphics" path="../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_gui_basics" path="../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_basics" path="../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_devices" path="../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_formats" path="../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors_headless" path="../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="../../../Applications/JUCE/modules"/>
+      </MODULEPATHS>
+    </XCODE_MAC>
+  </EXPORTFORMATS>
+</JUCERPROJECT>

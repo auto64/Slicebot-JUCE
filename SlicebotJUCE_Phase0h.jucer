@@ -4,6 +4,10 @@
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" bundleIdentifier="com.auto64.slicebotjuce">
   <MAINGROUP id="wSbmOg" name="SlicebotJUCEPhase0">
     <GROUP id="{FB906DED-8C2D-2546-FAB3-946F3F9BA6B2}" name="Source">
+      <FILE id="SgXbMV" name="SliceStateStore.cpp" compile="1" resource="0"
+            file="Source/SliceStateStore.cpp"/>
+      <FILE id="CfTLMW" name="SliceStateStore.h" compile="0" resource="0"
+            file="Source/SliceStateStore.h"/>
       <FILE id="b0MT9S" name="FlatTileLookAndFeel.cpp" compile="1" resource="0"
             file="Source/FlatTileLookAndFeel.cpp"/>
       <FILE id="YZiMYm" name="FlatTileLookAndFeel.h" compile="0" resource="0"
@@ -19,6 +23,8 @@
             file="Source/RecordingWriter.cpp"/>
       <FILE id="FZRto2" name="RecordingWriter.h" compile="0" resource="0"
             file="Source/RecordingWriter.h"/>
+      <FILE id="bLcWqY" name="AudioFileIO.cpp" compile="1" resource="0" file="Source/AudioFileIO.cpp"/>
+      <FILE id="uxWcm4" name="AudioFileIO.h" compile="0" resource="0" file="Source/AudioFileIO.h"/>
       <FILE id="nK9nSw" name="RecordingModule.cpp" compile="1" resource="0"
             file="Source/RecordingModule.cpp"/>
       <FILE id="utjvax" name="RecordingModule.h" compile="0" resource="0"

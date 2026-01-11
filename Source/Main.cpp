@@ -1,5 +1,6 @@
 #include <JuceHeader.h>
 #include "AudioEngine.h"
+#include "AudioFileIO.h"
 #include "MainComponent.h"
 
 class SliceBotJUCEApplication final : public juce::JUCEApplication
@@ -10,6 +11,8 @@ public:
 
     void initialise (const juce::String&) override
     {
+        AudioFileIO::runSmokeTestAtStartup();
+
         audioEngine.restoreState();
         audioEngine.start();
 

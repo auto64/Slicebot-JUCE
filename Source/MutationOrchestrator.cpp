@@ -109,19 +109,18 @@ bool MutationOrchestrator::requestResliceSingle (int index)
         auto previewSnippetURLs = snapshot.previewSnippetURLs;
         auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
 
-        SliceProcessingFlags flags;
-        flags.layeringMode = false;
-        flags.sampleCount = static_cast<int> (sliceInfos.size());
+        const bool layeringMode = snapshot.layeringMode;
+        const int sampleCount = snapshot.sampleCount;
 
-        if (flags.layeringMode)
+        if (layeringMode)
         {
-            if (flags.sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != flags.sampleCount * 2)
+            if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
                 return;
         }
 
-        const int logicalIndex = flags.layeringMode ? (index % flags.sampleCount) : index;
+        const int logicalIndex = layeringMode ? (index % sampleCount) : index;
         const int leftIndex = logicalIndex;
-        const int rightIndex = flags.layeringMode ? logicalIndex + flags.sampleCount : -1;
+        const int rightIndex = layeringMode ? logicalIndex + sampleCount : -1;
 
         auto resliceAtIndex = [&] (int targetIndex)
         {
@@ -172,7 +171,7 @@ bool MutationOrchestrator::requestResliceSingle (int index)
         if (! resliceAtIndex (leftIndex))
             return;
 
-        if (flags.layeringMode && rightIndex >= 0)
+        if (layeringMode && rightIndex >= 0)
         {
             if (! resliceAtIndex (rightIndex))
                 return;
@@ -211,13 +210,12 @@ bool MutationOrchestrator::requestResliceAll()
         if (sliceInfos.empty())
             return;
 
-        SliceProcessingFlags flags;
-        flags.layeringMode = false;
-        flags.sampleCount = static_cast<int> (sliceInfos.size());
+        const bool layeringMode = snapshot.layeringMode;
+        const int sampleCount = snapshot.sampleCount;
 
-        if (flags.layeringMode)
+        if (layeringMode)
         {
-            if (flags.sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != flags.sampleCount * 2)
+            if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
                 return;
         }
 
@@ -226,12 +224,12 @@ bool MutationOrchestrator::requestResliceAll()
         const int windowFrames = windowFramesPerBar();
         juce::Random random;
 
-        const int loopCount = flags.layeringMode ? flags.sampleCount : static_cast<int> (sliceInfos.size());
+        const int loopCount = layeringMode ? sampleCount : static_cast<int> (sliceInfos.size());
 
         for (int logicalIndex = 0; logicalIndex < loopCount; ++logicalIndex)
         {
             const int leftIndex = logicalIndex;
-            const int rightIndex = flags.layeringMode ? logicalIndex + flags.sampleCount : -1;
+            const int rightIndex = layeringMode ? logicalIndex + sampleCount : -1;
 
             auto resliceAtIndex = [&] (int targetIndex)
             {
@@ -277,7 +275,7 @@ bool MutationOrchestrator::requestResliceAll()
             if (! resliceAtIndex (leftIndex))
                 continue;
 
-            if (flags.layeringMode && rightIndex >= 0)
+            if (layeringMode && rightIndex >= 0)
             {
                 if (! resliceAtIndex (rightIndex))
                     continue;
@@ -320,19 +318,18 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
         auto previewSnippetURLs = snapshot.previewSnippetURLs;
         auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
 
-        SliceProcessingFlags flags;
-        flags.layeringMode = false;
-        flags.sampleCount = static_cast<int> (sliceInfos.size());
+        const bool layeringMode = snapshot.layeringMode;
+        const int sampleCount = snapshot.sampleCount;
 
-        if (flags.layeringMode)
+        if (layeringMode)
         {
-            if (flags.sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != flags.sampleCount * 2)
+            if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
                 return;
         }
 
-        const int logicalIndex = flags.layeringMode ? (index % flags.sampleCount) : index;
+        const int logicalIndex = layeringMode ? (index % sampleCount) : index;
         const int leftIndex = logicalIndex;
-        const int rightIndex = flags.layeringMode ? logicalIndex + flags.sampleCount : -1;
+        const int rightIndex = layeringMode ? logicalIndex + sampleCount : -1;
 
         auto regenerateAtIndex = [&] (int targetIndex)
         {
@@ -370,7 +367,7 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
         if (! regenerateAtIndex (leftIndex))
             return;
 
-        if (flags.layeringMode && rightIndex >= 0)
+        if (layeringMode && rightIndex >= 0)
         {
             if (! regenerateAtIndex (rightIndex))
                 return;
@@ -409,25 +406,24 @@ bool MutationOrchestrator::requestRegenerateAll()
         if (sliceInfos.empty())
             return;
 
-        SliceProcessingFlags flags;
-        flags.layeringMode = false;
-        flags.sampleCount = static_cast<int> (sliceInfos.size());
+        const bool layeringMode = snapshot.layeringMode;
+        const int sampleCount = snapshot.sampleCount;
 
-        if (flags.layeringMode)
+        if (layeringMode)
         {
-            if (flags.sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != flags.sampleCount * 2)
+            if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
                 return;
         }
 
         AudioFileIO audioFileIO;
         juce::Random random;
 
-        const int loopCount = flags.layeringMode ? flags.sampleCount : static_cast<int> (sliceInfos.size());
+        const int loopCount = layeringMode ? sampleCount : static_cast<int> (sliceInfos.size());
 
         for (int logicalIndex = 0; logicalIndex < loopCount; ++logicalIndex)
         {
             const int leftIndex = logicalIndex;
-            const int rightIndex = flags.layeringMode ? logicalIndex + flags.sampleCount : -1;
+            const int rightIndex = layeringMode ? logicalIndex + sampleCount : -1;
 
             auto regenerateAtIndex = [&] (int targetIndex)
             {
@@ -480,7 +476,7 @@ bool MutationOrchestrator::requestRegenerateAll()
             if (! regenerateAtIndex (leftIndex))
                 continue;
 
-            if (flags.layeringMode && rightIndex >= 0)
+            if (layeringMode && rightIndex >= 0)
             {
                 if (! regenerateAtIndex (rightIndex))
                     continue;

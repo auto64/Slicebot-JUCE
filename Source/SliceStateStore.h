@@ -20,6 +20,8 @@ public:
         std::vector<juce::File> previewSnippetURLs;
         std::vector<float> sliceVolumeSettings;
         juce::File previewChainURL;
+        bool layeringMode = false;
+        int sampleCount = 0;
     };
 
     SliceStateStore() = default;
@@ -36,6 +38,7 @@ public:
                           juce::File newPreviewChainURL);
 
     void setPreviewChainURL (juce::File newPreviewChainURL);
+    void setLayeringState (bool newLayeringMode, int newSampleCount);
 
 private:
     void enforceAlignmentOrAssert (const std::vector<SliceInfo>& newSliceInfos,
@@ -47,6 +50,8 @@ private:
     std::vector<juce::File> previewSnippetURLs;
     std::vector<float> sliceVolumeSettings;
     juce::File previewChainURL;
+    bool layeringMode = false;
+    int sampleCount = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SliceStateStore)
 };

@@ -277,6 +277,7 @@ bool DeterministicPreviewHarness::buildPreviewChain()
         return false;
     }
 
+    stateStore.setLayeringState (false, kSliceCount);
     stateStore.replaceAllState (std::move (pendingSliceInfos),
                                 std::move (pendingPreviewSnippetURLs),
                                 std::move (pendingSliceVolumeSettings),

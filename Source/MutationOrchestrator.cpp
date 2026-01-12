@@ -14,6 +14,12 @@ namespace {
     constexpr int kSelectedSubdivision = 4;
     constexpr bool kTransientDetectEnabled = true;
     const juce::Array<int> kAllowedSubdivisionsSteps = { 8, 4, 2, 1 };
+    constexpr int kPachinkoStutterCountMin = 2;
+    constexpr int kPachinkoStutterCountMax = 8;
+    constexpr float kPachinkoVolumeReductionMin = 0.0f;
+    constexpr float kPachinkoVolumeReductionMax = 0.6f;
+    constexpr float kPachinkoPitchShiftMin = -12.0f;
+    constexpr float kPachinkoPitchShiftMax = 12.0f;
 
     double resolvedBpm()
     {
@@ -683,7 +689,74 @@ bool MutationOrchestrator::requestStutterUndo (int index)
 
 bool MutationOrchestrator::requestPachinkoStutterAll()
 {
-    return false;
+    if (! guardMutation())
+        return false;
+
+    if (! validateAlignment())
+        return false;
+
+    BackgroundWorker worker;
+    bool rebuildOk = false;
+
+    worker.enqueue ([&]
+    {
+        const auto snapshot = stateStore.getSnapshot();
+        auto previewSnippetURLs = snapshot.previewSnippetURLs;
+        if (previewSnippetURLs.empty())
+            return;
+
+        AudioFileIO audioFileIO;
+        juce::Random random;
+
+        auto randomFloatInRange = [&] (float minValue, float maxValue)
+        {
+            return minValue + random.nextFloat() * (maxValue - minValue);
+        };
+
+        for (std::size_t index = 0; index < previewSnippetURLs.size(); ++index)
+        {
+            if (! random.nextBool())
+                continue;
+
+            const juce::File targetFile = previewSnippetURLs[index];
+            if (! targetFile.existsAsFile())
+                continue;
+
+            AudioFileIO::ConvertedAudio converted;
+            juce::String formatDescription;
+
+            if (! audioFileIO.readToMonoBuffer (targetFile, converted, formatDescription))
+                continue;
+
+            const int stutterCountRange = kPachinkoStutterCountMax - kPachinkoStutterCountMin + 1;
+            const int stutterCount = kPachinkoStutterCountMin + random.nextInt (stutterCountRange);
+            const float stutterVolumeReductionStep =
+                randomFloatInRange (kPachinkoVolumeReductionMin, kPachinkoVolumeReductionMax);
+            const float stutterPitchShiftSemitones =
+                randomFloatInRange (kPachinkoPitchShiftMin, kPachinkoPitchShiftMax);
+            const bool stutterTruncateEnabled = random.nextBool();
+            const float stutterStartFraction = random.nextFloat();
+
+            const auto stuttered = buildStutteredBuffer (converted.buffer,
+                                                         stutterCount,
+                                                         stutterVolumeReductionStep,
+                                                         stutterPitchShiftSemitones,
+                                                         stutterTruncateEnabled,
+                                                         stutterStartFraction);
+
+            AudioFileIO::ConvertedAudio outputAudio;
+            outputAudio.buffer = stuttered;
+            outputAudio.sampleRate = converted.sampleRate;
+
+            if (! audioFileIO.writeMonoWav16 (targetFile, outputAudio))
+                continue;
+        }
+
+        PreviewChainOrchestrator previewChain (stateStore);
+        rebuildOk = previewChain.rebuildPreviewChain();
+    });
+
+    return rebuildOk;
 }
 
 void MutationOrchestrator::clearStutterUndoBackup()

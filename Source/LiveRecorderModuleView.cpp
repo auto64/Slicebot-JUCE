@@ -1,5 +1,6 @@
 #include "LiveRecorderModuleView.h"
 #include "AudioEngine.h"
+#include "RecordingModule.h"
 
 static constexpr int kModuleW = 120;
 static constexpr int kModuleH = 120;
@@ -56,6 +57,7 @@ LiveRecorderModuleView::LiveRecorderModuleView (AudioEngine& engine,
     timeCounter.setButtonText ("00:00");
     timeCounter.setName ("RECORD_IDLE");
 
+    applyPersistedControlState();
     startTimerHz (8); // slower, visible flash
 }
 
@@ -142,10 +144,27 @@ void LiveRecorderModuleView::refreshInputChannels()
 
     if (selectedId == 0)
     {
-        selectedId = channelBox.getItemId (0);
-        for (int i = 1; i < channelBox.getNumItems(); ++i)
-            selectedId = juce::jmin (selectedId,
-                                     channelBox.getItemId (i));
+        const int desiredChannel = audioEngine.getRecorderInputChannel (recorderIndex);
+        if (desiredChannel >= 0)
+        {
+            for (int i = 0; i < channelBox.getNumItems(); ++i)
+            {
+                const int id = channelBox.getItemId (i);
+                if (id == desiredChannel + 1)
+                {
+                    selectedId = id;
+                    break;
+                }
+            }
+        }
+
+        if (selectedId == 0)
+        {
+            selectedId = channelBox.getItemId (0);
+            for (int i = 1; i < channelBox.getNumItems(); ++i)
+                selectedId = juce::jmin (selectedId,
+                                         channelBox.getItemId (i));
+        }
     }
 
     channelBox.setSelectedId (selectedId,
@@ -188,11 +207,27 @@ void LiveRecorderModuleView::buttonClicked (juce::Button* b)
         return;
     }
 
+    if (b == &midiArmButton)
+    {
+        audioEngine.setRecorderMidiArmEnabled (
+            recorderIndex,
+            midiArmButton.getToggleState());
+        return;
+    }
+
     if (b == &linkButton)
     {
         audioEngine.setRecorderLatchEnabled (
             recorderIndex,
             linkButton.getToggleState());
+        return;
+    }
+
+    if (b == &sliceButton)
+    {
+        audioEngine.setRecorderIncludeInGenerationEnabled (
+            recorderIndex,
+            sliceButton.getToggleState());
         return;
     }
 
@@ -275,8 +310,25 @@ void LiveRecorderModuleView::showClearWarning()
                     lastRecordedSeconds = 0.0;
                     timeCounter.setButtonText ("00:00");
                     timeCounter.setName ("RECORD_IDLE");
+                    applyPersistedControlState();
                 }
             }));
+}
+
+void LiveRecorderModuleView::applyPersistedControlState()
+{
+    midiArmButton.setToggleState (
+        audioEngine.isRecorderMidiArmEnabled (recorderIndex),
+        juce::dontSendNotification);
+    monitorButton.setToggleState (
+        audioEngine.isRecorderMonitoringEnabled (recorderIndex),
+        juce::dontSendNotification);
+    linkButton.setToggleState (
+        audioEngine.isRecorderLatchEnabled (recorderIndex),
+        juce::dontSendNotification);
+    sliceButton.setToggleState (
+        audioEngine.isRecorderIncludeInGenerationEnabled (recorderIndex),
+        juce::dontSendNotification);
 }
 
 // =====================================================
@@ -289,6 +341,13 @@ void LiveRecorderModuleView::timerCallback()
 
     rms  = audioEngine.getInputRMS();
     peak = audioEngine.getInputPeak();
+
+    const auto recorderFile = RecordingModule::getRecorderFile (recorderIndex);
+    if (! recorderFile.existsAsFile() && ! isRecording)
+    {
+        lastRecordedSeconds = 0.0;
+        timeCounter.setButtonText ("00:00");
+    }
 
     flashPhase = 1.0 - flashPhase; // binary toggle
 

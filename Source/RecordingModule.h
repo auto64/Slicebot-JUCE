@@ -14,6 +14,8 @@ public:
 
     RecordingModule();
 
+    static juce::File getRecorderFile (int recorderIndex);
+
     // device lifecycle (SAFE to call repeatedly)
     void prepareDevice (double sampleRate,
                         int recorderIndex);

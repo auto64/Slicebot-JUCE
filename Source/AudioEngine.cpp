@@ -44,8 +44,48 @@ AudioEngine::~AudioEngine()
 void AudioEngine::start() {}
 void AudioEngine::stop()  {}
 
-void AudioEngine::restoreState() {}
-void AudioEngine::saveState()    {}
+void AudioEngine::restoreState()
+{
+    auto& props = AppProperties::get().properties();
+    if (auto* settings = props.getUserSettings())
+    {
+        for (int index = 0; index < RecordingBus::kNumRecorders; ++index)
+        {
+            const juce::String prefix = "recorder_" + juce::String (index) + "_";
+            const int inputChannel = settings->getIntValue (prefix + "inputChannel", -1);
+            const bool monitoringEnabled = settings->getBoolValue (prefix + "monitoringEnabled", false);
+            const bool latchEnabled = settings->getBoolValue (prefix + "latchEnabled", false);
+            const bool includeEnabled = settings->getBoolValue (prefix + "includeInGeneration", true);
+            const bool midiArmEnabled = settings->getBoolValue (prefix + "midiArmEnabled", false);
+
+            recorderPhysicalChannels[index] = inputChannel;
+            recorderMonitoringEnabled[index] = monitoringEnabled;
+            recorderLatchEnabled[index] = latchEnabled;
+            recorderIncludeInGeneration[index] = includeEnabled;
+            recorderMidiArmEnabled[index] = midiArmEnabled;
+
+            recordingBus.setRecorderMonitoringEnabled (index, monitoringEnabled);
+            recordingBus.setRecorderLatchEnabled (index, latchEnabled);
+        }
+    }
+}
+
+void AudioEngine::saveState()
+{
+    auto& props = AppProperties::get().properties();
+    if (auto* settings = props.getUserSettings())
+    {
+        for (int index = 0; index < RecordingBus::kNumRecorders; ++index)
+        {
+            const juce::String prefix = "recorder_" + juce::String (index) + "_";
+            settings->setValue (prefix + "inputChannel", recorderPhysicalChannels[index]);
+            settings->setValue (prefix + "monitoringEnabled", recorderMonitoringEnabled[index]);
+            settings->setValue (prefix + "latchEnabled", recorderLatchEnabled[index]);
+            settings->setValue (prefix + "includeInGeneration", recorderIncludeInGeneration[index]);
+            settings->setValue (prefix + "midiArmEnabled", recorderMidiArmEnabled[index]);
+        }
+    }
+}
 
 // =====================================================
 // DEVICE ACCESS
@@ -112,11 +152,27 @@ void AudioEngine::cancelStopRecorder (int index)
 void AudioEngine::clearRecorder (int index)
 {
     recordingBus.clearRecorder (index);
+    const auto file = RecordingModule::getRecorderFile (index);
+    if (file.existsAsFile())
+        file.deleteFile();
+
+    recorderPhysicalChannels[index] = -1;
+    recorderMonitoringEnabled[index] = false;
+    recorderLatchEnabled[index] = false;
+    recorderIncludeInGeneration[index] = true;
+    recorderMidiArmEnabled[index] = false;
+
+    recordingBus.setRecorderMonitoringEnabled (index, false);
+    recordingBus.setRecorderLatchEnabled (index, false);
+
+    saveState();
 }
 
 void AudioEngine::setRecorderMonitoringEnabled (int index, bool enabled)
 {
     recordingBus.setRecorderMonitoringEnabled (index, enabled);
+    if (index >= 0 && index < RecordingBus::kNumRecorders)
+        recorderMonitoringEnabled[index] = enabled;
 }
 
 void AudioEngine::setRecorderInputChannel (int index, int physicalChannel)
@@ -130,6 +186,64 @@ void AudioEngine::setRecorderInputChannel (int index, int physicalChannel)
 void AudioEngine::setRecorderLatchEnabled (int index, bool enabled)
 {
     recordingBus.setRecorderLatchEnabled (index, enabled);
+    if (index >= 0 && index < RecordingBus::kNumRecorders)
+        recorderLatchEnabled[index] = enabled;
+}
+
+void AudioEngine::setRecorderIncludeInGenerationEnabled (int index, bool enabled)
+{
+    if (index < 0 || index >= RecordingBus::kNumRecorders)
+        return;
+
+    recorderIncludeInGeneration[index] = enabled;
+}
+
+void AudioEngine::setRecorderMidiArmEnabled (int index, bool enabled)
+{
+    if (index < 0 || index >= RecordingBus::kNumRecorders)
+        return;
+
+    recorderMidiArmEnabled[index] = enabled;
+}
+
+int AudioEngine::getRecorderInputChannel (int index) const
+{
+    if (index < 0 || index >= RecordingBus::kNumRecorders)
+        return -1;
+
+    return recorderPhysicalChannels[index];
+}
+
+bool AudioEngine::isRecorderMonitoringEnabled (int index) const
+{
+    if (index < 0 || index >= RecordingBus::kNumRecorders)
+        return false;
+
+    return recorderMonitoringEnabled[index];
+}
+
+bool AudioEngine::isRecorderLatchEnabled (int index) const
+{
+    if (index < 0 || index >= RecordingBus::kNumRecorders)
+        return false;
+
+    return recorderLatchEnabled[index];
+}
+
+bool AudioEngine::isRecorderIncludeInGenerationEnabled (int index) const
+{
+    if (index < 0 || index >= RecordingBus::kNumRecorders)
+        return false;
+
+    return recorderIncludeInGeneration[index];
+}
+
+bool AudioEngine::isRecorderMidiArmEnabled (int index) const
+{
+    if (index < 0 || index >= RecordingBus::kNumRecorders)
+        return false;
+
+    return recorderMidiArmEnabled[index];
 }
 
 // =====================================================

@@ -29,6 +29,7 @@ private:
 
     void showUnderMinWarning();
     void showClearWarning();
+    void applyPersistedControlState();
 
     // state
     AudioEngine& audioEngine;

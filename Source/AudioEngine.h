@@ -41,6 +41,14 @@ public:
     void setRecorderMonitoringEnabled (int index, bool enabled);
     void setRecorderInputChannel (int index, int physicalChannel);
     void setRecorderLatchEnabled (int index, bool enabled);
+    void setRecorderIncludeInGenerationEnabled (int index, bool enabled);
+    void setRecorderMidiArmEnabled (int index, bool enabled);
+
+    int getRecorderInputChannel (int index) const;
+    bool isRecorderMonitoringEnabled (int index) const;
+    bool isRecorderLatchEnabled (int index) const;
+    bool isRecorderIncludeInGenerationEnabled (int index) const;
+    bool isRecorderMidiArmEnabled (int index) const;
 
     // timing
     double getRecorderCurrentPassSeconds (int index) const;
@@ -69,6 +77,22 @@ private:
     std::array<int, RecordingBus::kNumRecorders> recorderPhysicalChannels
     {
         -1, -1, -1, -1
+    };
+    std::array<bool, RecordingBus::kNumRecorders> recorderMonitoringEnabled
+    {
+        false, false, false, false
+    };
+    std::array<bool, RecordingBus::kNumRecorders> recorderLatchEnabled
+    {
+        false, false, false, false
+    };
+    std::array<bool, RecordingBus::kNumRecorders> recorderIncludeInGeneration
+    {
+        true, true, true, true
+    };
+    std::array<bool, RecordingBus::kNumRecorders> recorderMidiArmEnabled
+    {
+        false, false, false, false
     };
 
     std::atomic<float> inputRMS  { 0.0f };

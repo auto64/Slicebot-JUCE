@@ -2,6 +2,18 @@
 
 RecordingModule::RecordingModule() {}
 
+juce::File RecordingModule::getRecorderFile (int recorderIndex)
+{
+    auto dir = juce::File::getSpecialLocation (
+                   juce::File::userDocumentsDirectory)
+                   .getChildFile ("SliceBot");
+
+    dir.createDirectory();
+
+    return dir.getChildFile (
+        "Recorder" + juce::String (recorderIndex + 1) + ".wav");
+}
+
 void RecordingModule::prepareDevice (double sr,
                                      int recorderIndex)
 {
@@ -12,14 +24,7 @@ void RecordingModule::prepareDevice (double sr,
 
     if (! writer)
     {
-        auto dir = juce::File::getSpecialLocation (
-                       juce::File::userDocumentsDirectory)
-                       .getChildFile ("SliceBot");
-
-        dir.createDirectory();
-
-        auto file = dir.getChildFile (
-            "Recorder" + juce::String (recorderIndex + 1) + ".wav");
+        auto file = getRecorderFile (recorderIndex);
 
         writer = std::make_unique<RecordingWriter> (
             maxSamples,

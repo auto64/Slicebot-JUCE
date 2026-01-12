@@ -4,6 +4,10 @@
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" bundleIdentifier="com.auto64.slicebotjuce">
   <MAINGROUP id="wSbmOg" name="SlicebotJUCEPhase0">
     <GROUP id="{FB906DED-8C2D-2546-FAB3-946F3F9BA6B2}" name="Source">
+      <FILE id="nmeYlc" name="SliceInfrastructure.cpp" compile="1" resource="0"
+            file="Source/SliceInfrastructure.cpp"/>
+      <FILE id="eUR9ZT" name="SliceInfrastructure.h" compile="0" resource="0"
+            file="Source/SliceInfrastructure.h"/>
       <FILE id="VdbQjr" name="DeterministicPreviewHarness.cpp" compile="1"
             resource="0" file="Source/DeterministicPreviewHarness.cpp"/>
       <FILE id="CyKWYH" name="DeterministicPreviewHarness.h" compile="0"

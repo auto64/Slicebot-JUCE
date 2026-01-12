@@ -1,3 +1,4 @@
+#include <JuceHeader.h>
 #include "AudioEngine.h"
 #include "DeterministicPreviewHarness.h"
 #include "MainComponent.h"

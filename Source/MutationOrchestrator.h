@@ -18,6 +18,7 @@ public:
     bool requestStutterSingle (int index);
     bool requestStutterUndo (int index);
     bool requestPachinkoStutterAll();
+    bool requestPachinkoReverseAll();
 
     void clearStutterUndoBackup();
     bool hasStutterUndoBackup() const;

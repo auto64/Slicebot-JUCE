@@ -162,6 +162,17 @@ namespace {
 
         return output;
     }
+
+    void reverseMonoBuffer (juce::AudioBuffer<float>& buffer)
+    {
+        const int totalFrames = buffer.getNumSamples();
+        if (totalFrames <= 1)
+            return;
+
+        float* data = buffer.getWritePointer (0);
+        for (int left = 0, right = totalFrames - 1; left < right; ++left, --right)
+            std::swap (data[left], data[right]);
+    }
 }
 
 MutationOrchestrator::MutationOrchestrator (SliceStateStore& store)
@@ -746,6 +757,62 @@ bool MutationOrchestrator::requestPachinkoStutterAll()
 
             AudioFileIO::ConvertedAudio outputAudio;
             outputAudio.buffer = stuttered;
+            outputAudio.sampleRate = converted.sampleRate;
+
+            if (! audioFileIO.writeMonoWav16 (targetFile, outputAudio))
+                continue;
+        }
+
+        PreviewChainOrchestrator previewChain (stateStore);
+        rebuildOk = previewChain.rebuildPreviewChain();
+    });
+
+    return rebuildOk;
+}
+
+bool MutationOrchestrator::requestPachinkoReverseAll()
+{
+    if (! guardMutation())
+        return false;
+
+    if (! validateAlignment())
+        return false;
+
+    BackgroundWorker worker;
+    bool rebuildOk = false;
+
+    worker.enqueue ([&]
+    {
+        const auto snapshot = stateStore.getSnapshot();
+        if (snapshot.manualReverseEnabled)
+            return;
+
+        auto previewSnippetURLs = snapshot.previewSnippetURLs;
+        if (previewSnippetURLs.empty())
+            return;
+
+        AudioFileIO audioFileIO;
+        juce::Random random;
+
+        for (std::size_t index = 0; index < previewSnippetURLs.size(); ++index)
+        {
+            if (! random.nextBool())
+                continue;
+
+            const juce::File targetFile = previewSnippetURLs[index];
+            if (! targetFile.existsAsFile())
+                continue;
+
+            AudioFileIO::ConvertedAudio converted;
+            juce::String formatDescription;
+
+            if (! audioFileIO.readToMonoBuffer (targetFile, converted, formatDescription))
+                continue;
+
+            reverseMonoBuffer (converted.buffer);
+
+            AudioFileIO::ConvertedAudio outputAudio;
+            outputAudio.buffer = std::move (converted.buffer);
             outputAudio.sampleRate = converted.sampleRate;
 
             if (! audioFileIO.writeMonoWav16 (targetFile, outputAudio))

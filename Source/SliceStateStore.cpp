@@ -10,6 +10,7 @@ SliceStateStore::SliceStateSnapshot SliceStateStore::getSnapshot() const
                                 layeringMode,
                                 sampleCount,
                                 mergeMode,
+                                manualReverseEnabled,
                                 stutterCount,
                                 stutterVolumeReductionStep,
                                 stutterPitchShiftSemitones,
@@ -61,6 +62,12 @@ void SliceStateStore::setMergeMode (MergeMode newMergeMode)
 {
     const juce::ScopedLock lock (stateLock);
     mergeMode = newMergeMode;
+}
+
+void SliceStateStore::setManualReverseEnabled (bool newManualReverseEnabled)
+{
+    const juce::ScopedLock lock (stateLock);
+    manualReverseEnabled = newManualReverseEnabled;
 }
 
 void SliceStateStore::setStutterSettings (int newStutterCount,

@@ -33,6 +33,7 @@ public:
         bool layeringMode = false;
         int sampleCount = 0;
         MergeMode mergeMode = MergeMode::none;
+        bool manualReverseEnabled = false;
         int stutterCount = 4;
         float stutterVolumeReductionStep = 0.2f;
         float stutterPitchShiftSemitones = 1.0f;
@@ -57,6 +58,7 @@ public:
     void setPreviewChainURL (juce::File newPreviewChainURL);
     void setLayeringState (bool newLayeringMode, int newSampleCount);
     void setMergeMode (MergeMode newMergeMode);
+    void setManualReverseEnabled (bool newManualReverseEnabled);
     void setStutterSettings (int newStutterCount,
                              float newStutterVolumeReductionStep,
                              float newStutterPitchShiftSemitones,
@@ -78,6 +80,7 @@ private:
     bool layeringMode = false;
     int sampleCount = 0;
     MergeMode mergeMode = MergeMode::none;
+    bool manualReverseEnabled = false;
     int stutterCount = 4;
     float stutterVolumeReductionStep = 0.2f;
     float stutterPitchShiftSemitones = 1.0f;

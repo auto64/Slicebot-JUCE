@@ -141,14 +141,20 @@ bool DeterministicPreviewHarness::buildDeterministicSlices()
     clearPendingState();
 
     juce::Random random;
-    pendingSliceInfos.reserve (kSliceCount);
-    pendingPreviewSnippetURLs.reserve (kSliceCount);
-    pendingSliceVolumeSettings.reserve (kSliceCount);
+    SliceProcessingFlags flags;
+    flags.layeringMode = false;
+    flags.sampleCount = kSliceCount;
+
+    const int targetSlices = flags.layeringMode ? flags.sampleCount * 2 : flags.sampleCount;
+
+    pendingSliceInfos.reserve (targetSlices);
+    pendingPreviewSnippetURLs.reserve (targetSlices);
+    pendingSliceVolumeSettings.reserve (targetSlices);
 
     const int noGoZoneFrames = computedNoGoZoneFrames();
     const int windowFrames = windowFramesPerBar();
 
-    for (int index = 0; index < kSliceCount; ++index)
+    for (int index = 0; index < targetSlices; ++index)
     {
         if (kCandidateSourcePaths.isEmpty())
             break;
@@ -213,6 +219,9 @@ bool DeterministicPreviewHarness::buildDeterministicSlices()
         pendingPreviewSnippetURLs.push_back (outputFile);
         pendingSliceVolumeSettings.push_back (1.0f);
     }
+
+    if (flags.layeringMode && static_cast<int> (pendingSliceInfos.size()) != targetSlices)
+        return false;
 
     return ! pendingSliceInfos.empty();
 }

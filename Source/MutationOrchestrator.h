@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <optional>
 #include "SliceStateStore.h"
 
 class MutationOrchestrator
@@ -19,6 +20,9 @@ public:
     bool requestStutterUndo (int index);
     bool requestPachinkoStutterAll();
     bool requestPachinkoReverseAll();
+    bool requestExportSlices (const std::optional<SliceStateStore::ExportSettings>& overrideSettings);
+    bool requestExportFullChainWithoutVolume (const std::optional<SliceStateStore::ExportSettings>& overrideSettings);
+    bool requestExportFullChainWithVolume (const std::optional<SliceStateStore::ExportSettings>& overrideSettings);
 
     void clearStutterUndoBackup();
     bool hasStutterUndoBackup() const;

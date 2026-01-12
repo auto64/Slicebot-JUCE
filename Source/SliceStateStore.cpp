@@ -11,6 +11,8 @@ SliceStateStore::SliceStateSnapshot SliceStateStore::getSnapshot() const
                                 sampleCount,
                                 mergeMode,
                                 manualReverseEnabled,
+                                exportSettingsLocked,
+                                exportSettings,
                                 stutterCount,
                                 stutterVolumeReductionStep,
                                 stutterPitchShiftSemitones,
@@ -68,6 +70,18 @@ void SliceStateStore::setManualReverseEnabled (bool newManualReverseEnabled)
 {
     const juce::ScopedLock lock (stateLock);
     manualReverseEnabled = newManualReverseEnabled;
+}
+
+void SliceStateStore::setExportSettingsLocked (bool newExportSettingsLocked)
+{
+    const juce::ScopedLock lock (stateLock);
+    exportSettingsLocked = newExportSettingsLocked;
+}
+
+void SliceStateStore::setExportSettings (ExportSettings newExportSettings)
+{
+    const juce::ScopedLock lock (stateLock);
+    exportSettings = std::move (newExportSettings);
 }
 
 void SliceStateStore::setStutterSettings (int newStutterCount,

@@ -24,6 +24,13 @@ public:
         int snippetFrameCount = 0;
     };
 
+    struct ExportSettings
+    {
+        juce::File sliceExportDirectory;
+        juce::File chainExportFile;
+        int sliceExportRetryCount = 3;
+    };
+
     struct SliceStateSnapshot
     {
         std::vector<SliceInfo> sliceInfos;
@@ -34,6 +41,8 @@ public:
         int sampleCount = 0;
         MergeMode mergeMode = MergeMode::none;
         bool manualReverseEnabled = false;
+        bool exportSettingsLocked = false;
+        ExportSettings exportSettings;
         int stutterCount = 4;
         float stutterVolumeReductionStep = 0.2f;
         float stutterPitchShiftSemitones = 1.0f;
@@ -59,6 +68,8 @@ public:
     void setLayeringState (bool newLayeringMode, int newSampleCount);
     void setMergeMode (MergeMode newMergeMode);
     void setManualReverseEnabled (bool newManualReverseEnabled);
+    void setExportSettingsLocked (bool newExportSettingsLocked);
+    void setExportSettings (ExportSettings newExportSettings);
     void setStutterSettings (int newStutterCount,
                              float newStutterVolumeReductionStep,
                              float newStutterPitchShiftSemitones,
@@ -81,6 +92,8 @@ private:
     int sampleCount = 0;
     MergeMode mergeMode = MergeMode::none;
     bool manualReverseEnabled = false;
+    bool exportSettingsLocked = false;
+    ExportSettings exportSettings;
     int stutterCount = 4;
     float stutterVolumeReductionStep = 0.2f;
     float stutterPitchShiftSemitones = 1.0f;

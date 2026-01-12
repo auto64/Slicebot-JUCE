@@ -4,6 +4,7 @@
 
 #include "AudioFileIO.h"
 #include "BackgroundWorker.h"
+#include "ExportOrchestrator.h"
 #include "PreviewChainOrchestrator.h"
 #include "SliceInfrastructure.h"
 
@@ -824,6 +825,63 @@ bool MutationOrchestrator::requestPachinkoReverseAll()
     });
 
     return rebuildOk;
+}
+
+bool MutationOrchestrator::requestExportSlices (const std::optional<SliceStateStore::ExportSettings>& overrideSettings)
+{
+    if (! guardMutation())
+        return false;
+
+    if (! validateAlignment())
+        return false;
+
+    BackgroundWorker worker;
+    bool exportOk = false;
+
+    worker.enqueue ([&]
+    {
+        ExportOrchestrator exporter (stateStore);
+        exportOk = exporter.exportSlices (overrideSettings);
+    });
+
+    return exportOk;
+}
+
+bool MutationOrchestrator::requestExportFullChainWithoutVolume (const std::optional<SliceStateStore::ExportSettings>& overrideSettings)
+{
+    if (! guardMutation())
+        return false;
+
+    BackgroundWorker worker;
+    bool exportOk = false;
+
+    worker.enqueue ([&]
+    {
+        ExportOrchestrator exporter (stateStore);
+        exportOk = exporter.exportFullChainWithoutVolume (overrideSettings);
+    });
+
+    return exportOk;
+}
+
+bool MutationOrchestrator::requestExportFullChainWithVolume (const std::optional<SliceStateStore::ExportSettings>& overrideSettings)
+{
+    if (! guardMutation())
+        return false;
+
+    if (! validateAlignment())
+        return false;
+
+    BackgroundWorker worker;
+    bool exportOk = false;
+
+    worker.enqueue ([&]
+    {
+        ExportOrchestrator exporter (stateStore);
+        exportOk = exporter.exportFullChainWithVolume (overrideSettings);
+    });
+
+    return exportOk;
 }
 
 void MutationOrchestrator::clearStutterUndoBackup()

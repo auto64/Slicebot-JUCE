@@ -3,7 +3,19 @@
 SliceStateStore::SliceStateSnapshot SliceStateStore::getSnapshot() const
 {
     const juce::ScopedLock lock (stateLock);
-    return SliceStateSnapshot { sliceInfos, previewSnippetURLs, sliceVolumeSettings, previewChainURL, layeringMode, sampleCount, mergeMode };
+    return SliceStateSnapshot { sliceInfos,
+                                previewSnippetURLs,
+                                sliceVolumeSettings,
+                                previewChainURL,
+                                layeringMode,
+                                sampleCount,
+                                mergeMode,
+                                stutterCount,
+                                stutterVolumeReductionStep,
+                                stutterPitchShiftSemitones,
+                                stutterTruncateEnabled,
+                                stutterStartFraction,
+                                stutterUndoBackup };
 }
 
 void SliceStateStore::setAlignedSlices (std::vector<SliceInfo> newSliceInfos,
@@ -49,6 +61,32 @@ void SliceStateStore::setMergeMode (MergeMode newMergeMode)
 {
     const juce::ScopedLock lock (stateLock);
     mergeMode = newMergeMode;
+}
+
+void SliceStateStore::setStutterSettings (int newStutterCount,
+                                          float newStutterVolumeReductionStep,
+                                          float newStutterPitchShiftSemitones,
+                                          bool newStutterTruncateEnabled,
+                                          float newStutterStartFraction)
+{
+    const juce::ScopedLock lock (stateLock);
+    stutterCount = newStutterCount;
+    stutterVolumeReductionStep = newStutterVolumeReductionStep;
+    stutterPitchShiftSemitones = newStutterPitchShiftSemitones;
+    stutterTruncateEnabled = newStutterTruncateEnabled;
+    stutterStartFraction = newStutterStartFraction;
+}
+
+void SliceStateStore::clearStutterUndoBackup()
+{
+    const juce::ScopedLock lock (stateLock);
+    stutterUndoBackup.clear();
+}
+
+void SliceStateStore::setStutterUndoBackupEntry (int index, juce::File originalSnippet)
+{
+    const juce::ScopedLock lock (stateLock);
+    stutterUndoBackup[index] = std::move (originalSnippet);
 }
 
 void SliceStateStore::enforceAlignmentOrAssert (const std::vector<SliceInfo>& newSliceInfos,

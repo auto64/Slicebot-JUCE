@@ -33,6 +33,12 @@ public:
         bool layeringMode = false;
         int sampleCount = 0;
         MergeMode mergeMode = MergeMode::none;
+        int stutterCount = 4;
+        float stutterVolumeReductionStep = 0.2f;
+        float stutterPitchShiftSemitones = 1.0f;
+        bool stutterTruncateEnabled = false;
+        float stutterStartFraction = 0.0f;
+        std::map<int, juce::File> stutterUndoBackup;
     };
 
     SliceStateStore() = default;
@@ -51,6 +57,13 @@ public:
     void setPreviewChainURL (juce::File newPreviewChainURL);
     void setLayeringState (bool newLayeringMode, int newSampleCount);
     void setMergeMode (MergeMode newMergeMode);
+    void setStutterSettings (int newStutterCount,
+                             float newStutterVolumeReductionStep,
+                             float newStutterPitchShiftSemitones,
+                             bool newStutterTruncateEnabled,
+                             float newStutterStartFraction);
+    void clearStutterUndoBackup();
+    void setStutterUndoBackupEntry (int index, juce::File originalSnippet);
 
 private:
     void enforceAlignmentOrAssert (const std::vector<SliceInfo>& newSliceInfos,
@@ -65,6 +78,12 @@ private:
     bool layeringMode = false;
     int sampleCount = 0;
     MergeMode mergeMode = MergeMode::none;
+    int stutterCount = 4;
+    float stutterVolumeReductionStep = 0.2f;
+    float stutterPitchShiftSemitones = 1.0f;
+    bool stutterTruncateEnabled = false;
+    float stutterStartFraction = 0.0f;
+    std::map<int, juce::File> stutterUndoBackup;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SliceStateStore)
 };

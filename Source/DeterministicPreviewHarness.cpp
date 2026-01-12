@@ -4,7 +4,8 @@ namespace
 {
     constexpr double kTargetSampleRate = 44100.0;
     constexpr int kSliceCount = 4;
-    constexpr int kSliceFrameCount = 22050;
+    constexpr double kBpm = 120.0;
+    constexpr int kBeatsPerBar = 4;
 
     juce::File getDeterministicSourceFile()
     {
@@ -20,6 +21,13 @@ namespace
     juce::File getPreviewSnippetOutputFile (const juce::File& inputFile, int index)
     {
         return inputFile.getSiblingFile ("slice_" + juce::String (index) + ".wav");
+    }
+
+    int framesPerBar()
+    {
+        const double secondsPerBeat = 60.0 / kBpm;
+        const double secondsPerBar = secondsPerBeat * static_cast<double> (kBeatsPerBar);
+        return static_cast<int> (std::lround (secondsPerBar * kTargetSampleRate));
     }
 }
 
@@ -72,20 +80,20 @@ bool DeterministicPreviewHarness::buildDeterministicSlices()
 
     sourceBuffer = converted.buffer;
 
-    sliceFrameCount = kSliceFrameCount;
+    sliceFrameCount = framesPerBar();
     sliceStartFrames.clear();
 
-    for (int index = 0; index < kSliceCount; ++index)
-        sliceStartFrames.add (index * kSliceFrameCount);
-
     const int sourceSamples = sourceBuffer.getNumSamples();
-    const int lastSliceEnd = sliceStartFrames.getLast() + sliceFrameCount;
-
-    if (lastSliceEnd > sourceSamples)
+    if (sourceSamples < sliceFrameCount * kSliceCount)
     {
         juce::Logger::writeToLog ("DeterministicPreviewHarness: source file too short for deterministic slices");
         return false;
     }
+
+    const int spacing = (sourceSamples - sliceFrameCount) / kSliceCount;
+
+    for (int index = 0; index < kSliceCount; ++index)
+        sliceStartFrames.add (index * spacing);
 
     std::vector<SliceStateStore::SliceInfo> sliceInfos;
     std::vector<juce::File> previewSnippetURLs;

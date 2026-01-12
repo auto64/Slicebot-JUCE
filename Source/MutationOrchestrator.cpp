@@ -1,6 +1,33 @@
 #include "MutationOrchestrator.h"
+#include "AudioFileIO.h"
 #include "BackgroundWorker.h"
 #include "PreviewChainOrchestrator.h"
+#include "SliceInfrastructure.h"
+
+namespace
+{
+    constexpr double kTargetSampleRate = 44100.0;
+    constexpr double kDefaultBpm = 120.0;
+
+    double sanitizedBpm()
+    {
+        if (kDefaultBpm <= 0.0)
+            return 128.0;
+
+        return kDefaultBpm;
+    }
+
+    double secondsPerBeat()
+    {
+        return 60.0 / sanitizedBpm();
+    }
+
+    int computedNoGoZoneFrames()
+    {
+        const double seconds = std::ceil (secondsPerBeat() * 8.0);
+        return static_cast<int> (std::lround (seconds * kTargetSampleRate));
+    }
+}
 
 MutationOrchestrator::MutationOrchestrator (SliceStateStore& store)
     : stateStore (store)
@@ -32,8 +59,64 @@ bool MutationOrchestrator::requestResliceSingle (int index)
     bool rebuildOk = false;
     worker.enqueue ([&]
     {
+        const auto snapshot = stateStore.getSnapshot();
+        if (index < 0 || index >= static_cast<int> (snapshot.sliceInfos.size()))
+            return;
+
+        auto sliceInfos = snapshot.sliceInfos;
+        auto previewSnippetURLs = snapshot.previewSnippetURLs;
+        auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
+
+        const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (index)];
+        const juce::File sourceFile = sliceInfo.fileURL;
+
+        AudioFileIO audioFileIO;
+        AudioFileIO::ConvertedAudio converted;
+        juce::String formatDescription;
+
+        if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
+            return;
+
+        const int noGoZoneFrames = computedNoGoZoneFrames();
+        const int fileDurationFrames = converted.buffer.getNumSamples();
+        const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames);
+
+        juce::Random random;
+        int startFrame = random.nextInt (maxCandidateStart + 1);
+
+        const int snippetFrameCount = sliceInfo.snippetFrameCount;
+        const bool transientDetectEnabled = false;
+        const auto refined = refinedStart (converted.buffer, startFrame, snippetFrameCount, transientDetectEnabled);
+        if (refined.has_value())
+            startFrame = refined.value();
+
+        if (startFrame + snippetFrameCount > fileDurationFrames)
+            return;
+
+        const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (index)];
+
+        juce::AudioBuffer<float> sliceBuffer (1, snippetFrameCount);
+        sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, snippetFrameCount);
+
+        AudioFileIO::ConvertedAudio sliceAudio;
+        sliceAudio.buffer = std::move (sliceBuffer);
+        sliceAudio.sampleRate = kTargetSampleRate;
+
+        if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
+            return;
+
+        SliceStateStore::SliceInfo updatedInfo = sliceInfo;
+        updatedInfo.startFrame = startFrame;
+        sliceInfos[static_cast<std::size_t> (index)] = updatedInfo;
+
+        stateStore.setAlignedSlices (std::move (sliceInfos),
+                                     std::move (previewSnippetURLs),
+                                     std::move (sliceVolumeSettings));
+
         PreviewChainOrchestrator previewChain (stateStore);
         rebuildOk = previewChain.rebuildPreviewChain();
+        if (rebuildOk)
+            clearStutterUndoBackup();
     });
 
     return rebuildOk;
@@ -51,8 +134,67 @@ bool MutationOrchestrator::requestResliceAll()
     bool rebuildOk = false;
     worker.enqueue ([&]
     {
+        const auto snapshot = stateStore.getSnapshot();
+        auto sliceInfos = snapshot.sliceInfos;
+        auto previewSnippetURLs = snapshot.previewSnippetURLs;
+        auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
+
+        if (sliceInfos.empty())
+            return;
+
+        AudioFileIO audioFileIO;
+        const int noGoZoneFrames = computedNoGoZoneFrames();
+        juce::Random random;
+        const bool transientDetectEnabled = false;
+
+        for (std::size_t i = 0; i < sliceInfos.size(); ++i)
+        {
+            const auto& sliceInfo = sliceInfos[i];
+            const juce::File sourceFile = sliceInfo.fileURL;
+
+            AudioFileIO::ConvertedAudio converted;
+            juce::String formatDescription;
+
+            if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
+                continue;
+
+            const int fileDurationFrames = converted.buffer.getNumSamples();
+            const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames);
+            int startFrame = random.nextInt (maxCandidateStart + 1);
+
+            const int snippetFrameCount = sliceInfo.snippetFrameCount;
+            const auto refined = refinedStart (converted.buffer, startFrame, snippetFrameCount, transientDetectEnabled);
+            if (refined.has_value())
+                startFrame = refined.value();
+
+            if (startFrame + snippetFrameCount > fileDurationFrames)
+                continue;
+
+            const juce::File outputFile = previewSnippetURLs[i];
+
+            juce::AudioBuffer<float> sliceBuffer (1, snippetFrameCount);
+            sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, snippetFrameCount);
+
+            AudioFileIO::ConvertedAudio sliceAudio;
+            sliceAudio.buffer = std::move (sliceBuffer);
+            sliceAudio.sampleRate = kTargetSampleRate;
+
+            if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
+                continue;
+
+            SliceStateStore::SliceInfo updatedInfo = sliceInfo;
+            updatedInfo.startFrame = startFrame;
+            sliceInfos[i] = updatedInfo;
+        }
+
+        stateStore.setAlignedSlices (std::move (sliceInfos),
+                                     std::move (previewSnippetURLs),
+                                     std::move (sliceVolumeSettings));
+
         PreviewChainOrchestrator previewChain (stateStore);
         rebuildOk = previewChain.rebuildPreviewChain();
+        if (rebuildOk)
+            clearStutterUndoBackup();
     });
 
     return rebuildOk;

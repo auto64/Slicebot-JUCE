@@ -4,6 +4,18 @@
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" bundleIdentifier="com.auto64.slicebotjuce">
   <MAINGROUP id="wSbmOg" name="SlicebotJUCEPhase0">
     <GROUP id="{FB906DED-8C2D-2546-FAB3-946F3F9BA6B2}" name="Source">
+      <FILE id="oPws9j" name="PreviewChainOrchestrator.cpp" compile="1" resource="0"
+            file="Source/PreviewChainOrchestrator.cpp"/>
+      <FILE id="XVqHWl" name="PreviewChainOrchestrator.h" compile="0" resource="0"
+            file="Source/PreviewChainOrchestrator.h"/>
+      <FILE id="UivGDl" name="MutationOrchestrator.cpp" compile="1" resource="0"
+            file="Source/MutationOrchestrator.cpp"/>
+      <FILE id="xCLjKS" name="MutationOrchestrator.h" compile="0" resource="0"
+            file="Source/MutationOrchestrator.h"/>
+      <FILE id="TXs3Ne" name="BackgroundWorker.cpp" compile="1" resource="0"
+            file="Source/BackgroundWorker.cpp"/>
+      <FILE id="s2IdVZ" name="BackgroundWorker.h" compile="0" resource="0"
+            file="Source/BackgroundWorker.h"/>
       <FILE id="nmeYlc" name="SliceInfrastructure.cpp" compile="1" resource="0"
             file="Source/SliceInfrastructure.cpp"/>
       <FILE id="eUR9ZT" name="SliceInfrastructure.h" compile="0" resource="0"

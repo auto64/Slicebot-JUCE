@@ -1,0 +1,32 @@
+#pragma once
+
+#include <JuceHeader.h>
+#include "SliceStateStore.h"
+
+class MutationOrchestrator
+{
+public:
+    explicit MutationOrchestrator (SliceStateStore& stateStore);
+
+    void setCaching (bool caching);
+    bool isCaching() const;
+
+    bool requestResliceSingle (int index);
+    bool requestResliceAll();
+    bool requestRegenerateSingle (int index);
+    bool requestRegenerateAll();
+
+    void clearStutterUndoBackup();
+    bool hasStutterUndoBackup() const;
+
+private:
+    bool guardMutation() const;
+    bool validateIndex (int index) const;
+    bool validateAlignment() const;
+
+    SliceStateStore& stateStore;
+    std::atomic<bool> caching { false };
+    juce::File stutterUndoBackup;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MutationOrchestrator)
+};

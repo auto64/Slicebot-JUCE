@@ -15,6 +15,9 @@ public:
     bool requestResliceAll();
     bool requestRegenerateSingle (int index);
     bool requestRegenerateAll();
+    bool requestStutterSingle (int index);
+    bool requestStutterUndo (int index);
+    bool requestPachinkoStutterAll();
 
     void clearStutterUndoBackup();
     bool hasStutterUndoBackup() const;

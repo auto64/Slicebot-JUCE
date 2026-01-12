@@ -1,11 +1,11 @@
 #include "MutationOrchestrator.h"
+#include <cmath>
 #include "AudioFileIO.h"
 #include "BackgroundWorker.h"
 #include "PreviewChainOrchestrator.h"
 #include "SliceInfrastructure.h"
 
-namespace
-{
+namespace {
     constexpr double kTargetSampleRate = 44100.0;
     constexpr double kDefaultBpm = 120.0;
     constexpr bool kRandomSubdivisionModeEnabled = true;
@@ -68,6 +68,90 @@ namespace
     {
         const double seconds = std::ceil (secondsPerBeat() * 8.0);
         return static_cast<int> (std::lround (seconds * kTargetSampleRate));
+    }
+
+    int clampedStartFrame (float startFraction, int totalFrames)
+    {
+        if (totalFrames <= 0)
+            return 0;
+
+        const float clampedFraction = juce::jlimit (0.0f, 1.0f, startFraction);
+        int startFrame = static_cast<int> (std::floor (clampedFraction * static_cast<float> (totalFrames)));
+        if (startFrame >= totalFrames)
+            startFrame = totalFrames - 1;
+        return juce::jmax (0, startFrame);
+    }
+
+    float pitchRatioFromSemitones (float semitones)
+    {
+        return static_cast<float> (std::pow (2.0f, semitones / 12.0f));
+    }
+
+    juce::AudioBuffer<float> buildStutteredBuffer (const juce::AudioBuffer<float>& input,
+                                                   int stutterCount,
+                                                   float volumeReductionStep,
+                                                   float pitchShiftSemitones,
+                                                   bool truncateEnabled,
+                                                   float startFraction)
+    {
+        const int totalFrames = input.getNumSamples();
+        if (totalFrames <= 0)
+            return input;
+
+        if (stutterCount <= 0)
+            return input;
+
+        const int startFrame = clampedStartFrame (startFraction, totalFrames);
+        const int remainingFrames = totalFrames - startFrame;
+        if (remainingFrames <= 0)
+            return input;
+
+        const int segmentLength = juce::jmax (1, (remainingFrames + stutterCount - 1) / stutterCount);
+        const int targetFrames = truncateEnabled ? (segmentLength * stutterCount) : totalFrames;
+
+        juce::AudioBuffer<float> output (1, targetFrames);
+        output.clear();
+
+        const float* inputData = input.getReadPointer (0);
+        float* outputData = output.getWritePointer (0);
+
+        int writePosition = 0;
+        if (! truncateEnabled && startFrame > 0)
+        {
+            output.copyFrom (0, 0, input, 0, 0, startFrame);
+            writePosition = startFrame;
+        }
+
+        const float pitchRatio = pitchRatioFromSemitones (pitchShiftSemitones);
+        const float safePitchRatio = pitchRatio > 0.0f ? pitchRatio : 1.0f;
+
+        for (int repeatIndex = 0; repeatIndex < stutterCount && writePosition < targetFrames; ++repeatIndex)
+        {
+            const float gain = juce::jmax (0.0f, 1.0f - volumeReductionStep * static_cast<float> (repeatIndex));
+            double position = 0.0;
+
+            for (int s = 0; s < segmentLength && writePosition < targetFrames; ++s)
+            {
+                const int baseIndex = static_cast<int> (position) % segmentLength;
+                const int nextIndex = (baseIndex + 1) % segmentLength;
+                const float frac = static_cast<float> (position - std::floor (position));
+
+                const int sourceIndex = startFrame + baseIndex;
+                const int sourceNextIndex = startFrame + nextIndex;
+                const float sampleA = inputData[juce::jmin (sourceIndex, totalFrames - 1)];
+                const float sampleB = inputData[juce::jmin (sourceNextIndex, totalFrames - 1)];
+
+                const float sample = sampleA + (sampleB - sampleA) * frac;
+                outputData[writePosition] = sample * gain;
+                ++writePosition;
+
+                position += safePitchRatio;
+                while (position >= static_cast<double> (segmentLength))
+                    position -= static_cast<double> (segmentLength);
+            }
+        }
+
+        return output;
     }
 }
 
@@ -496,14 +580,177 @@ bool MutationOrchestrator::requestRegenerateAll()
     return rebuildOk;
 }
 
+bool MutationOrchestrator::requestStutterSingle (int index)
+{
+    if (! guardMutation())
+        return false;
+
+    if (! validateIndex (index))
+        return false;
+
+    if (! validateAlignment())
+        return false;
+
+    BackgroundWorker worker;
+    bool rebuildOk = false;
+    worker.enqueue ([&]
+    {
+        const auto snapshot = stateStore.getSnapshot();
+        if (index < 0 || index >= static_cast<int> (snapshot.previewSnippetURLs.size()))
+            return;
+
+        const auto& previewSnippetURLs = snapshot.previewSnippetURLs;
+        const juce::File targetFile = previewSnippetURLs[static_cast<std::size_t> (index)];
+        if (! targetFile.existsAsFile())
+            return;
+
+        const juce::File backupFile = targetFile.getSiblingFile ("stutter_undo_" + juce::String (index) + ".wav");
+        if (! targetFile.copyFileTo (backupFile))
+            return;
+
+        stateStore.setStutterUndoBackupEntry (index, backupFile);
+
+        AudioFileIO audioFileIO;
+        AudioFileIO::ConvertedAudio converted;
+        juce::String formatDescription;
+
+        if (! audioFileIO.readToMonoBuffer (targetFile, converted, formatDescription))
+            return;
+
+        const auto stuttered = buildStutteredBuffer (converted.buffer,
+                                                     snapshot.stutterCount,
+                                                     snapshot.stutterVolumeReductionStep,
+                                                     snapshot.stutterPitchShiftSemitones,
+                                                     snapshot.stutterTruncateEnabled,
+                                                     snapshot.stutterStartFraction);
+
+        AudioFileIO::ConvertedAudio outputAudio;
+        outputAudio.buffer = stuttered;
+        outputAudio.sampleRate = converted.sampleRate;
+
+        if (! audioFileIO.writeMonoWav16 (targetFile, outputAudio))
+            return;
+
+        PreviewChainOrchestrator previewChain (stateStore);
+        rebuildOk = previewChain.rebuildPreviewChain();
+    });
+
+    return rebuildOk;
+}
+
+bool MutationOrchestrator::requestStutterUndo (int index)
+{
+    if (! guardMutation())
+        return false;
+
+    if (! validateIndex (index))
+        return false;
+
+    if (! validateAlignment())
+        return false;
+
+    BackgroundWorker worker;
+    bool rebuildOk = false;
+    worker.enqueue ([&]
+    {
+        const auto snapshot = stateStore.getSnapshot();
+        if (index < 0 || index >= static_cast<int> (snapshot.previewSnippetURLs.size()))
+            return;
+
+        const auto backupIt = snapshot.stutterUndoBackup.find (index);
+        if (backupIt == snapshot.stutterUndoBackup.end())
+            return;
+
+        const juce::File backupFile = backupIt->second;
+        if (! backupFile.existsAsFile())
+            return;
+
+        const juce::File targetFile = snapshot.previewSnippetURLs[static_cast<std::size_t> (index)];
+        if (! backupFile.copyFileTo (targetFile))
+            return;
+
+        PreviewChainOrchestrator previewChain (stateStore);
+        rebuildOk = previewChain.rebuildPreviewChain();
+    });
+
+    return rebuildOk;
+}
+
+bool MutationOrchestrator::requestPachinkoStutterAll()
+{
+    if (! guardMutation())
+        return false;
+
+    if (! validateAlignment())
+        return false;
+
+    BackgroundWorker worker;
+    bool rebuildOk = false;
+    worker.enqueue ([&]
+    {
+        const auto snapshot = stateStore.getSnapshot();
+        if (snapshot.previewSnippetURLs.empty())
+            return;
+
+        AudioFileIO audioFileIO;
+        juce::Random random;
+
+        for (std::size_t index = 0; index < snapshot.previewSnippetURLs.size(); ++index)
+        {
+            if (! random.nextBool())
+                continue;
+
+            const juce::File targetFile = snapshot.previewSnippetURLs[index];
+            if (! targetFile.existsAsFile())
+                continue;
+
+            AudioFileIO::ConvertedAudio converted;
+            juce::String formatDescription;
+
+            if (! audioFileIO.readToMonoBuffer (targetFile, converted, formatDescription))
+                continue;
+
+            const int stutterCount = random.nextInt (8) + 1;
+            const float volumeReductionStep = random.nextFloat();
+            const float pitchShiftSemitones = random.nextFloat() * 24.0f - 12.0f;
+            const bool truncateEnabled = random.nextBool();
+            const float startFraction = random.nextFloat();
+
+            const auto stuttered = buildStutteredBuffer (converted.buffer,
+                                                         stutterCount,
+                                                         volumeReductionStep,
+                                                         pitchShiftSemitones,
+                                                         truncateEnabled,
+                                                         startFraction);
+
+            AudioFileIO::ConvertedAudio outputAudio;
+            outputAudio.buffer = stuttered;
+            outputAudio.sampleRate = converted.sampleRate;
+
+            if (! audioFileIO.writeMonoWav16 (targetFile, outputAudio))
+                continue;
+        }
+
+        PreviewChainOrchestrator previewChain (stateStore);
+        rebuildOk = previewChain.rebuildPreviewChain();
+    });
+
+    return rebuildOk;
+}
+
 void MutationOrchestrator::clearStutterUndoBackup()
 {
     stutterUndoBackup = juce::File();
+    stateStore.clearStutterUndoBackup();
 }
 
 bool MutationOrchestrator::hasStutterUndoBackup() const
 {
-    return stutterUndoBackup != juce::File();
+    if (stutterUndoBackup != juce::File())
+        return true;
+
+    const auto snapshot = stateStore.getSnapshot();
+    return ! snapshot.stutterUndoBackup.empty();
 }
 
 bool MutationOrchestrator::guardMutation() const

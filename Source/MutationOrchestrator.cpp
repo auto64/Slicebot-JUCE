@@ -8,6 +8,9 @@ namespace
 {
     constexpr double kTargetSampleRate = 44100.0;
     constexpr double kDefaultBpm = 120.0;
+    constexpr bool kRandomSubdivisionModeEnabled = true;
+    constexpr int kSelectedSubdivision = 4;
+    const juce::Array<int> kAllowedSubdivisionsSteps = { 8, 4, 2, 1 };
 
     double sanitizedBpm()
     {
@@ -20,6 +23,38 @@ namespace
     double secondsPerBeat()
     {
         return 60.0 / sanitizedBpm();
+    }
+
+    int subdivisionToBeats (int subdivisionSteps)
+    {
+        switch (subdivisionSteps)
+        {
+            case 8: return 8;
+            case 4: return 4;
+            case 2: return 2;
+            case 1: return 1;
+            default: break;
+        }
+
+        return 4;
+    }
+
+    int resolvedSelectedSubdivision()
+    {
+        for (const int step : kAllowedSubdivisionsSteps)
+        {
+            if (step == kSelectedSubdivision)
+                return step;
+        }
+
+        return 4;
+    }
+
+    int subdivisionToFrameCount (int subdivisionSteps)
+    {
+        const int beats = subdivisionToBeats (subdivisionSteps);
+        const double durationSeconds = secondsPerBeat() * static_cast<double> (beats);
+        return static_cast<int> (std::lround (durationSeconds * kTargetSampleRate));
     }
 
     int computedNoGoZoneFrames()
@@ -215,8 +250,50 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
     bool rebuildOk = false;
     worker.enqueue ([&]
     {
+        const auto snapshot = stateStore.getSnapshot();
+        if (index < 0 || index >= static_cast<int> (snapshot.sliceInfos.size()))
+            return;
+
+        auto sliceInfos = snapshot.sliceInfos;
+        auto previewSnippetURLs = snapshot.previewSnippetURLs;
+        auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
+
+        const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (index)];
+        const juce::File sourceFile = sliceInfo.fileURL;
+        const int startFrame = sliceInfo.startFrame;
+        const int snippetFrameCount = sliceInfo.snippetFrameCount;
+
+        AudioFileIO audioFileIO;
+        AudioFileIO::ConvertedAudio converted;
+        juce::String formatDescription;
+
+        if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
+            return;
+
+        const int fileDurationFrames = converted.buffer.getNumSamples();
+        if (startFrame + snippetFrameCount > fileDurationFrames)
+            return;
+
+        const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (index)];
+
+        juce::AudioBuffer<float> sliceBuffer (1, snippetFrameCount);
+        sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, snippetFrameCount);
+
+        AudioFileIO::ConvertedAudio sliceAudio;
+        sliceAudio.buffer = std::move (sliceBuffer);
+        sliceAudio.sampleRate = kTargetSampleRate;
+
+        if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
+            return;
+
+        stateStore.setAlignedSlices (std::move (sliceInfos),
+                                     std::move (previewSnippetURLs),
+                                     std::move (sliceVolumeSettings));
+
         PreviewChainOrchestrator previewChain (stateStore);
         rebuildOk = previewChain.rebuildPreviewChain();
+        if (rebuildOk)
+            clearStutterUndoBackup();
     });
 
     return rebuildOk;
@@ -234,8 +311,71 @@ bool MutationOrchestrator::requestRegenerateAll()
     bool rebuildOk = false;
     worker.enqueue ([&]
     {
+        const auto snapshot = stateStore.getSnapshot();
+        auto sliceInfos = snapshot.sliceInfos;
+        auto previewSnippetURLs = snapshot.previewSnippetURLs;
+        auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
+
+        if (sliceInfos.empty())
+            return;
+
+        AudioFileIO audioFileIO;
+        juce::Random random;
+
+        for (std::size_t i = 0; i < sliceInfos.size(); ++i)
+        {
+            const auto& sliceInfo = sliceInfos[i];
+            const juce::File sourceFile = sliceInfo.fileURL;
+            const int startFrame = sliceInfo.startFrame;
+            const int originalFrameCount = sliceInfo.snippetFrameCount;
+
+            AudioFileIO::ConvertedAudio converted;
+            juce::String formatDescription;
+
+            if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
+                continue;
+
+            const int fileDurationFrames = converted.buffer.getNumSamples();
+            int snippetFrameCount = originalFrameCount;
+
+            if (kRandomSubdivisionModeEnabled)
+            {
+                const int subdivisionSteps =
+                    kAllowedSubdivisionsSteps[random.nextInt (kAllowedSubdivisionsSteps.size())];
+                snippetFrameCount = subdivisionToFrameCount (subdivisionSteps);
+            }
+
+            if (startFrame + snippetFrameCount > fileDurationFrames)
+                continue;
+
+            const juce::File outputFile = previewSnippetURLs[i];
+
+            juce::AudioBuffer<float> sliceBuffer (1, snippetFrameCount);
+            sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, snippetFrameCount);
+
+            AudioFileIO::ConvertedAudio sliceAudio;
+            sliceAudio.buffer = std::move (sliceBuffer);
+            sliceAudio.sampleRate = kTargetSampleRate;
+
+            if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
+                continue;
+
+            if (! kRandomSubdivisionModeEnabled)
+            {
+                SliceStateStore::SliceInfo updatedInfo = sliceInfo;
+                updatedInfo.snippetFrameCount = snippetFrameCount;
+                sliceInfos[i] = updatedInfo;
+            }
+        }
+
+        stateStore.setAlignedSlices (std::move (sliceInfos),
+                                     std::move (previewSnippetURLs),
+                                     std::move (sliceVolumeSettings));
+
         PreviewChainOrchestrator previewChain (stateStore);
         rebuildOk = previewChain.rebuildPreviewChain();
+        if (rebuildOk)
+            clearStutterUndoBackup();
     });
 
     return rebuildOk;

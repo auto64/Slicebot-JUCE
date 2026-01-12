@@ -11,6 +11,7 @@ public:
     ~DeterministicPreviewHarness();
 
     void run();
+    // TEMP/DEBUG: startup-only reslice invocation harness.
     void runTemporaryResliceAllDebug();
 
 private:

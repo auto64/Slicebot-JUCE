@@ -1,5 +1,6 @@
 #include "DeterministicPreviewHarness.h"
 #include "MutationOrchestrator.h"
+#include "SliceInfrastructure.h"
 
 namespace
 {
@@ -10,6 +11,7 @@ namespace
     constexpr bool kRandomSourceSelectionEnabled = true;
     constexpr bool kRandomSubdivisionModeEnabled = true;
     constexpr int kSelectedSubdivision = 4;
+    constexpr bool kTransientDetectEnabled = true;
 
     const juce::StringArray kCandidateSourcePaths = {
         "/path/to/your/audio.wav", // TODO: set a real path
@@ -39,6 +41,12 @@ namespace
     double secondsPerBeat()
     {
         return 60.0 / sanitizedBpm();
+    }
+
+    int windowFramesPerBar()
+    {
+        const double seconds = secondsPerBeat() * 4.0;
+        return static_cast<int> (std::lround (seconds * kTargetSampleRate));
     }
 
     int subdivisionToBeats (int subdivisionSteps)
@@ -138,6 +146,7 @@ bool DeterministicPreviewHarness::buildDeterministicSlices()
     pendingSliceVolumeSettings.reserve (kSliceCount);
 
     const int noGoZoneFrames = computedNoGoZoneFrames();
+    const int windowFrames = windowFramesPerBar();
 
     for (int index = 0; index < kSliceCount; ++index)
     {
@@ -159,8 +168,19 @@ bool DeterministicPreviewHarness::buildDeterministicSlices()
             continue;
 
         const int fileDurationFrames = converted.buffer.getNumSamples();
-        const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames);
-        const int startFrame = random.nextInt (maxCandidateStart + 1);
+        int startFrame = 0;
+        if (kTransientDetectEnabled)
+        {
+            const auto refined = refinedStart (converted.buffer, 0, windowFrames, kTransientDetectEnabled);
+            if (! refined.has_value())
+                continue;
+            startFrame = refined.value();
+        }
+        else
+        {
+            const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames);
+            startFrame = random.nextInt (maxCandidateStart + 1);
+        }
 
         const int subdivisionSteps = kRandomSubdivisionModeEnabled
             ? kAllowedSubdivisionsSteps[random.nextInt (kAllowedSubdivisionsSteps.size())]

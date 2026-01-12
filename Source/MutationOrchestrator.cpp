@@ -10,6 +10,7 @@ namespace
     constexpr double kDefaultBpm = 120.0;
     constexpr bool kRandomSubdivisionModeEnabled = true;
     constexpr int kSelectedSubdivision = 4;
+    constexpr bool kTransientDetectEnabled = true;
     const juce::Array<int> kAllowedSubdivisionsSteps = { 8, 4, 2, 1 };
 
     double sanitizedBpm()
@@ -23,6 +24,12 @@ namespace
     double secondsPerBeat()
     {
         return 60.0 / sanitizedBpm();
+    }
+
+    int windowFramesPerBar()
+    {
+        const double seconds = secondsPerBeat() * 4.0;
+        return static_cast<int> (std::lround (seconds * kTargetSampleRate));
     }
 
     int subdivisionToBeats (int subdivisionSteps)
@@ -120,8 +127,8 @@ bool MutationOrchestrator::requestResliceSingle (int index)
         int startFrame = random.nextInt (maxCandidateStart + 1);
 
         const int snippetFrameCount = sliceInfo.snippetFrameCount;
-        const bool transientDetectEnabled = false;
-        const auto refined = refinedStart (converted.buffer, startFrame, snippetFrameCount, transientDetectEnabled);
+        const int windowFrames = windowFramesPerBar();
+        const auto refined = refinedStart (converted.buffer, startFrame, windowFrames, kTransientDetectEnabled);
         if (refined.has_value())
             startFrame = refined.value();
 
@@ -179,8 +186,8 @@ bool MutationOrchestrator::requestResliceAll()
 
         AudioFileIO audioFileIO;
         const int noGoZoneFrames = computedNoGoZoneFrames();
+        const int windowFrames = windowFramesPerBar();
         juce::Random random;
-        const bool transientDetectEnabled = false;
 
         for (std::size_t i = 0; i < sliceInfos.size(); ++i)
         {
@@ -198,7 +205,7 @@ bool MutationOrchestrator::requestResliceAll()
             int startFrame = random.nextInt (maxCandidateStart + 1);
 
             const int snippetFrameCount = sliceInfo.snippetFrameCount;
-            const auto refined = refinedStart (converted.buffer, startFrame, snippetFrameCount, transientDetectEnabled);
+            const auto refined = refinedStart (converted.buffer, startFrame, windowFrames, kTransientDetectEnabled);
             if (refined.has_value())
                 startFrame = refined.value();
 

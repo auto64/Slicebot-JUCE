@@ -17,6 +17,7 @@ public:
         previewHarness = std::make_unique<DeterministicPreviewHarness> (audioEngine.getDeviceManager());
         previewHarness->run();
 
+        // TEMP/DEBUG: invoke reslice once after startup for audible verification.
         juce::Timer::callAfterDelay (1500, [this]
         {
             if (previewHarness)

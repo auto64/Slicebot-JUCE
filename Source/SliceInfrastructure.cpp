@@ -51,7 +51,7 @@ std::optional<int> refinedStart (const juce::AudioBuffer<float>& input,
 
 juce::AudioBuffer<float> mergeSlices (const juce::AudioBuffer<float>& leftSlice,
                                       const juce::AudioBuffer<float>&,
-                                      MergeMode)
+                                      SliceStateStore::MergeMode)
 {
     return leftSlice;
 }

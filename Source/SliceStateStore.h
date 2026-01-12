@@ -6,6 +6,16 @@
 class SliceStateStore
 {
 public:
+    enum class MergeMode
+    {
+        none,
+        fiftyFifty,
+        quarterCuts,
+        crossfade,
+        crossfadeReverse,
+        pachinko
+    };
+
     struct SliceInfo
     {
         juce::File fileURL;
@@ -22,6 +32,7 @@ public:
         juce::File previewChainURL;
         bool layeringMode = false;
         int sampleCount = 0;
+        MergeMode mergeMode = MergeMode::none;
     };
 
     SliceStateStore() = default;
@@ -39,6 +50,7 @@ public:
 
     void setPreviewChainURL (juce::File newPreviewChainURL);
     void setLayeringState (bool newLayeringMode, int newSampleCount);
+    void setMergeMode (MergeMode newMergeMode);
 
 private:
     void enforceAlignmentOrAssert (const std::vector<SliceInfo>& newSliceInfos,
@@ -52,6 +64,7 @@ private:
     juce::File previewChainURL;
     bool layeringMode = false;
     int sampleCount = 0;
+    MergeMode mergeMode = MergeMode::none;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SliceStateStore)
 };

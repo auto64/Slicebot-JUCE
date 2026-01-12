@@ -18,12 +18,14 @@ bool PreviewChainOrchestrator::rebuildPreviewChain()
 
     const bool layeringMode = snapshot.layeringMode;
     const int sampleCount = snapshot.sampleCount;
+    const SliceStateStore::MergeMode mergeMode = snapshot.mergeMode;
 
     if (layeringMode)
     {
         if (sampleCount <= 0 || static_cast<int> (previewSnippetURLs.size()) != sampleCount * 2)
             return false;
 
+        juce::Random random;
         for (int i = 0; i < sampleCount; ++i)
         {
             const auto& leftFile = previewSnippetURLs[static_cast<std::size_t> (i)];
@@ -46,13 +48,70 @@ bool PreviewChainOrchestrator::rebuildPreviewChain()
             if (mergedSamples <= 0)
                 return false;
 
+            SliceStateStore::MergeMode selectedMode = mergeMode;
+            if (mergeMode == SliceStateStore::MergeMode::pachinko)
+            {
+                const int modeIndex = random.nextInt (5);
+                switch (modeIndex)
+                {
+                    case 0: selectedMode = SliceStateStore::MergeMode::none; break;
+                    case 1: selectedMode = SliceStateStore::MergeMode::fiftyFifty; break;
+                    case 2: selectedMode = SliceStateStore::MergeMode::quarterCuts; break;
+                    case 3: selectedMode = SliceStateStore::MergeMode::crossfade; break;
+                    case 4: selectedMode = SliceStateStore::MergeMode::crossfadeReverse; break;
+                    default: selectedMode = SliceStateStore::MergeMode::none; break;
+                }
+            }
+
             juce::AudioBuffer<float> mergedBuffer (1, mergedSamples);
             const float* leftData = leftAudio.buffer.getReadPointer (0);
             const float* rightData = rightAudio.buffer.getReadPointer (0);
             float* mergedData = mergedBuffer.getWritePointer (0);
 
-            for (int s = 0; s < mergedSamples; ++s)
-                mergedData[s] = 0.5f * (leftData[s] + rightData[s]);
+            if (selectedMode == SliceStateStore::MergeMode::none)
+            {
+                for (int s = 0; s < mergedSamples; ++s)
+                    mergedData[s] = leftData[s];
+            }
+            else if (selectedMode == SliceStateStore::MergeMode::fiftyFifty)
+            {
+                for (int s = 0; s < mergedSamples; ++s)
+                    mergedData[s] = 0.5f * (leftData[s] + rightData[s]);
+            }
+            else if (selectedMode == SliceStateStore::MergeMode::quarterCuts)
+            {
+                const int quarter = juce::jmax (1, mergedSamples / 4);
+                for (int s = 0; s < mergedSamples; ++s)
+                {
+                    const int segment = (s / quarter) % 2;
+                    mergedData[s] = segment == 0 ? leftData[s] : rightData[s];
+                }
+            }
+            else
+            {
+                juce::AudioBuffer<float> rightWorking (1, mergedSamples);
+                rightWorking.copyFrom (0, 0, rightAudio.buffer, 0, 0, mergedSamples);
+                if (selectedMode == SliceStateStore::MergeMode::crossfadeReverse)
+                {
+                    float* rightDataMutable = rightWorking.getWritePointer (0);
+                    for (int s = 0; s < mergedSamples / 2; ++s)
+                        std::swap (rightDataMutable[s], rightDataMutable[mergedSamples - 1 - s]);
+                }
+
+                const float* rightBlend = rightWorking.getReadPointer (0);
+                if (mergedSamples == 1)
+                {
+                    mergedData[0] = 0.5f * (leftData[0] + rightBlend[0]);
+                }
+                else
+                {
+                    for (int s = 0; s < mergedSamples; ++s)
+                    {
+                        const float t = static_cast<float> (s) / static_cast<float> (mergedSamples - 1);
+                        mergedData[s] = (1.0f - t) * leftData[s] + t * rightBlend[s];
+                    }
+                }
+            }
 
             const juce::File mergedFile = leftFile.getSiblingFile ("merged_" + juce::String (i) + ".wav");
 

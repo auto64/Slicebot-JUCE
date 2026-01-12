@@ -40,6 +40,7 @@ public:
 
     void setRecorderMonitoringEnabled (int index, bool enabled);
     void setRecorderInputChannel (int index, int physicalChannel);
+    void setRecorderLatchEnabled (int index, bool enabled);
 
     // timing
     double getRecorderCurrentPassSeconds (int index) const;

@@ -26,6 +26,8 @@ public:
     void clearRecorder (int index);
 
     bool isRecorderArmed (int index) const;
+    void setRecorderLatchEnabled (int index, bool enabled);
+    bool isRecorderLatchEnabled (int index) const;
 
     // =====================================================
     // ROUTING
@@ -54,6 +56,7 @@ private:
         int  bufferIndex       = -1;
         bool armed             = false;
         bool monitoringEnabled = false;
+        bool latchEnabled      = false;
     };
 
     std::array<RecorderSlot, kNumRecorders> recorders;

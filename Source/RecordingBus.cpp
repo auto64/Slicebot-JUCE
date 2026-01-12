@@ -28,8 +28,22 @@ void RecordingBus::armRecorder (int index)
     if (index < 0 || index >= kNumRecorders)
         return;
 
-    recorders[index].armed = true;
-    recorders[index].recorder.arm();
+    if (recorders[index].latchEnabled)
+    {
+        for (int i = 0; i < kNumRecorders; ++i)
+        {
+            if (! recorders[i].latchEnabled)
+                continue;
+
+            recorders[i].armed = true;
+            recorders[i].recorder.arm();
+        }
+    }
+    else
+    {
+        recorders[index].armed = true;
+        recorders[index].recorder.arm();
+    }
 }
 
 RecordingModule::StopResult
@@ -42,6 +56,22 @@ RecordingBus::confirmStopRecorder (int index)
 
     if (! slot.armed)
         return RecordingModule::StopResult::Kept;
+
+    if (slot.latchEnabled)
+    {
+        RecordingModule::StopResult result = RecordingModule::StopResult::Kept;
+        for (int i = 0; i < kNumRecorders; ++i)
+        {
+            if (! recorders[i].latchEnabled)
+                continue;
+
+            recorders[i].armed = false;
+            const auto stopResult = recorders[i].recorder.confirmStop();
+            if (stopResult == RecordingModule::StopResult::DeletedTooShort)
+                result = stopResult;
+        }
+        return result;
+    }
 
     slot.armed = false;
     return slot.recorder.confirmStop();
@@ -70,6 +100,22 @@ bool RecordingBus::isRecorderArmed (int index) const
         return false;
 
     return recorders[index].armed;
+}
+
+void RecordingBus::setRecorderLatchEnabled (int index, bool enabled)
+{
+    if (index < 0 || index >= kNumRecorders)
+        return;
+
+    recorders[index].latchEnabled = enabled;
+}
+
+bool RecordingBus::isRecorderLatchEnabled (int index) const
+{
+    if (index < 0 || index >= kNumRecorders)
+        return false;
+
+    return recorders[index].latchEnabled;
 }
 
 // =====================================================

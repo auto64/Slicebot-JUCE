@@ -188,6 +188,14 @@ void LiveRecorderModuleView::buttonClicked (juce::Button* b)
         return;
     }
 
+    if (b == &linkButton)
+    {
+        audioEngine.setRecorderLatchEnabled (
+            recorderIndex,
+            linkButton.getToggleState());
+        return;
+    }
+
     if (b == &clearButton)
     {
         showClearWarning();

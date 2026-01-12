@@ -1,5 +1,3 @@
-#pragma once
-
 #include <JuceHeader.h>
 #include <optional>
 #include "SliceStateStore.h"

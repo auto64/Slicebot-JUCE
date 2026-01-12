@@ -127,6 +127,11 @@ void AudioEngine::setRecorderInputChannel (int index, int physicalChannel)
     recorderPhysicalChannels[index] = physicalChannel;
 }
 
+void AudioEngine::setRecorderLatchEnabled (int index, bool enabled)
+{
+    recordingBus.setRecorderLatchEnabled (index, enabled);
+}
+
 // =====================================================
 // TIMING
 // =====================================================

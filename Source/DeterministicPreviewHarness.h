@@ -11,11 +11,13 @@ public:
     ~DeterministicPreviewHarness();
 
     void run();
+    void runTemporaryResliceAllDebug();
 
 private:
     bool buildDeterministicSlices();
     bool buildPreviewChain();
     bool startPlayback();
+    void stopPlayback();
 
     void clearPendingState();
 

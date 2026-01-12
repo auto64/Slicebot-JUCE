@@ -1,4 +1,5 @@
 #include "DeterministicPreviewHarness.h"
+#include "MutationOrchestrator.h"
 
 namespace
 {
@@ -87,10 +88,7 @@ DeterministicPreviewHarness::DeterministicPreviewHarness (juce::AudioDeviceManag
 
 DeterministicPreviewHarness::~DeterministicPreviewHarness()
 {
-    transportSource.stop();
-    transportSource.setSource (nullptr);
-    sourcePlayer.setSource (nullptr);
-    deviceManager.removeAudioCallback (&sourcePlayer);
+    stopPlayback();
 }
 
 void DeterministicPreviewHarness::run()
@@ -105,6 +103,21 @@ void DeterministicPreviewHarness::run()
         return;
 
     juce::Logger::writeToLog ("DeterministicPreviewHarness: preview chain playback started");
+}
+
+void DeterministicPreviewHarness::runTemporaryResliceAllDebug()
+{
+    MutationOrchestrator orchestrator (stateStore);
+    if (! orchestrator.requestResliceAll())
+        return;
+
+    const auto snapshot = stateStore.getSnapshot();
+    if (snapshot.previewChainURL == juce::File())
+        return;
+
+    previewChainFile = snapshot.previewChainURL;
+    stopPlayback();
+    startPlayback();
 }
 
 void DeterministicPreviewHarness::clearPendingState()
@@ -262,4 +275,13 @@ bool DeterministicPreviewHarness::startPlayback()
     transportSource.start();
 
     return true;
+}
+
+void DeterministicPreviewHarness::stopPlayback()
+{
+    transportSource.stop();
+    transportSource.setSource (nullptr);
+    sourcePlayer.setSource (nullptr);
+    deviceManager.removeAudioCallback (&sourcePlayer);
+    readerSource.reset();
 }

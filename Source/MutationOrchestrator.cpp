@@ -1,4 +1,6 @@
 #include "MutationOrchestrator.h"
+#include "BackgroundWorker.h"
+#include "PreviewChainOrchestrator.h"
 
 MutationOrchestrator::MutationOrchestrator (SliceStateStore& store)
     : stateStore (store)
@@ -26,7 +28,13 @@ bool MutationOrchestrator::requestResliceSingle (int index)
     if (! validateAlignment())
         return false;
 
-    return false;
+    BackgroundWorker worker;
+    worker.enqueue ([] {});
+
+    PreviewChainOrchestrator previewChain (stateStore);
+    previewChain.rebuildPreviewChain();
+
+    return true;
 }
 
 bool MutationOrchestrator::requestResliceAll()
@@ -37,7 +45,13 @@ bool MutationOrchestrator::requestResliceAll()
     if (! validateAlignment())
         return false;
 
-    return false;
+    BackgroundWorker worker;
+    worker.enqueue ([] {});
+
+    PreviewChainOrchestrator previewChain (stateStore);
+    previewChain.rebuildPreviewChain();
+
+    return true;
 }
 
 bool MutationOrchestrator::requestRegenerateSingle (int index)
@@ -51,7 +65,13 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
     if (! validateAlignment())
         return false;
 
-    return false;
+    BackgroundWorker worker;
+    worker.enqueue ([] {});
+
+    PreviewChainOrchestrator previewChain (stateStore);
+    previewChain.rebuildPreviewChain();
+
+    return true;
 }
 
 bool MutationOrchestrator::requestRegenerateAll()
@@ -62,7 +82,13 @@ bool MutationOrchestrator::requestRegenerateAll()
     if (! validateAlignment())
         return false;
 
-    return false;
+    BackgroundWorker worker;
+    worker.enqueue ([] {});
+
+    PreviewChainOrchestrator previewChain (stateStore);
+    previewChain.rebuildPreviewChain();
+
+    return true;
 }
 
 void MutationOrchestrator::clearStutterUndoBackup()

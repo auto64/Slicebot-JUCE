@@ -17,6 +17,8 @@ private:
     bool buildPreviewChain();
     bool startPlayback();
 
+    void clearPendingState();
+
     juce::AudioDeviceManager& deviceManager;
     AudioFileIO audioFileIO;
     SliceStateStore stateStore;
@@ -26,11 +28,11 @@ private:
     juce::AudioSourcePlayer sourcePlayer;
     std::unique_ptr<juce::AudioFormatReaderSource> readerSource;
 
-    juce::File sourceFile;
+    std::vector<SliceStateStore::SliceInfo> pendingSliceInfos;
+    std::vector<juce::File> pendingPreviewSnippetURLs;
+    std::vector<float> pendingSliceVolumeSettings;
+
     juce::File previewChainFile;
-    juce::AudioBuffer<float> sourceBuffer;
-    int sliceFrameCount = 0;
-    juce::Array<int> sliceStartFrames;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DeterministicPreviewHarness)
 };

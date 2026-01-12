@@ -5,13 +5,17 @@ namespace
     constexpr double kTargetSampleRate = 44100.0;
     constexpr int kSliceCount = 4;
     constexpr double kBpm = 120.0;
-    constexpr int kBeatsPerBar = 4;
 
-    juce::File getDeterministicSourceFile()
-    {
-        const juce::String testPath = "/path/to/your/audio.wav"; // TODO: set a real path
-        return juce::File (testPath);
-    }
+    constexpr bool kRandomSourceSelectionEnabled = true;
+    constexpr bool kRandomSubdivisionModeEnabled = true;
+    constexpr int kSelectedSubdivision = 4;
+
+    const juce::StringArray kCandidateSourcePaths = {
+        "/path/to/your/audio.wav", // TODO: set a real path
+        "/path/to/your/alternate.wav" // TODO: set a real path
+    };
+
+    const juce::Array<int> kAllowedSubdivisionsSteps = { 8, 4, 2, 1 };
 
     juce::File getPreviewChainOutputFile (const juce::File& inputFile)
     {
@@ -23,11 +27,55 @@ namespace
         return inputFile.getSiblingFile ("slice_" + juce::String (index) + ".wav");
     }
 
-    int framesPerBar()
+    double sanitizedBpm()
     {
-        const double secondsPerBeat = 60.0 / kBpm;
-        const double secondsPerBar = secondsPerBeat * static_cast<double> (kBeatsPerBar);
-        return static_cast<int> (std::lround (secondsPerBar * kTargetSampleRate));
+        if (kBpm <= 0.0)
+            return 128.0;
+
+        return kBpm;
+    }
+
+    double secondsPerBeat()
+    {
+        return 60.0 / sanitizedBpm();
+    }
+
+    int subdivisionToBeats (int subdivisionSteps)
+    {
+        switch (subdivisionSteps)
+        {
+            case 8: return 8;
+            case 4: return 4;
+            case 2: return 2;
+            case 1: return 1;
+            default: break;
+        }
+
+        return 4;
+    }
+
+    int resolvedSelectedSubdivision()
+    {
+        for (const int step : kAllowedSubdivisionsSteps)
+        {
+            if (step == kSelectedSubdivision)
+                return step;
+        }
+
+        return 4;
+    }
+
+    int subdivisionToFrameCount (int subdivisionSteps)
+    {
+        const int beats = subdivisionToBeats (subdivisionSteps);
+        const double durationSeconds = secondsPerBeat() * static_cast<double> (beats);
+        return static_cast<int> (std::lround (durationSeconds * kTargetSampleRate));
+    }
+
+    int computedNoGoZoneFrames()
+    {
+        const double seconds = std::ceil (secondsPerBeat() * 8.0);
+        return static_cast<int> (std::lround (seconds * kTargetSampleRate));
     }
 }
 
@@ -59,107 +107,123 @@ void DeterministicPreviewHarness::run()
     juce::Logger::writeToLog ("DeterministicPreviewHarness: preview chain playback started");
 }
 
+void DeterministicPreviewHarness::clearPendingState()
+{
+    pendingSliceInfos.clear();
+    pendingPreviewSnippetURLs.clear();
+    pendingSliceVolumeSettings.clear();
+    previewChainFile = juce::File();
+}
+
 bool DeterministicPreviewHarness::buildDeterministicSlices()
 {
-    sourceFile = getDeterministicSourceFile();
+    clearPendingState();
 
-    if (! sourceFile.existsAsFile())
-    {
-        juce::Logger::writeToLog ("DeterministicPreviewHarness: source file missing at " + sourceFile.getFullPathName());
-        return false;
-    }
+    juce::Random random;
+    pendingSliceInfos.reserve (kSliceCount);
+    pendingPreviewSnippetURLs.reserve (kSliceCount);
+    pendingSliceVolumeSettings.reserve (kSliceCount);
 
-    AudioFileIO::ConvertedAudio converted;
-    juce::String formatDescription;
-
-    if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
-    {
-        juce::Logger::writeToLog ("DeterministicPreviewHarness: source read failed. format=" + formatDescription);
-        return false;
-    }
-
-    sourceBuffer = converted.buffer;
-
-    sliceFrameCount = framesPerBar();
-    sliceStartFrames.clear();
-
-    const int sourceSamples = sourceBuffer.getNumSamples();
-    if (sourceSamples < sliceFrameCount * kSliceCount)
-    {
-        juce::Logger::writeToLog ("DeterministicPreviewHarness: source file too short for deterministic slices");
-        return false;
-    }
-
-    const int spacing = (sourceSamples - sliceFrameCount) / kSliceCount;
-
-    for (int index = 0; index < kSliceCount; ++index)
-        sliceStartFrames.add (index * spacing);
-
-    std::vector<SliceStateStore::SliceInfo> sliceInfos;
-    std::vector<juce::File> previewSnippetURLs;
-    std::vector<float> sliceVolumeSettings;
-
-    sliceInfos.reserve (kSliceCount);
-    previewSnippetURLs.reserve (kSliceCount);
-    sliceVolumeSettings.reserve (kSliceCount);
+    const int noGoZoneFrames = computedNoGoZoneFrames();
 
     for (int index = 0; index < kSliceCount; ++index)
     {
-        const int startFrame = sliceStartFrames[index];
-        const juce::File outputFile = getPreviewSnippetOutputFile (sourceFile, index);
+        if (kCandidateSourcePaths.isEmpty())
+            break;
+
+        const int sourceIndex = kRandomSourceSelectionEnabled
+            ? random.nextInt (kCandidateSourcePaths.size())
+            : 0;
+
+        const juce::File candidateFile (kCandidateSourcePaths[sourceIndex]);
+        if (! candidateFile.existsAsFile())
+            continue;
+
+        AudioFileIO::ConvertedAudio converted;
+        juce::String formatDescription;
+
+        if (! audioFileIO.readToMonoBuffer (candidateFile, converted, formatDescription))
+            continue;
+
+        const int fileDurationFrames = converted.buffer.getNumSamples();
+        const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames);
+        const int startFrame = random.nextInt (maxCandidateStart + 1);
+
+        const int subdivisionSteps = kRandomSubdivisionModeEnabled
+            ? kAllowedSubdivisionsSteps[random.nextInt (kAllowedSubdivisionsSteps.size())]
+            : resolvedSelectedSubdivision();
+
+        const int sliceFrameCount = subdivisionToFrameCount (subdivisionSteps);
+
+        if (startFrame + sliceFrameCount > fileDurationFrames)
+            continue;
+
+        const juce::File outputFile = getPreviewSnippetOutputFile (candidateFile, index);
 
         juce::AudioBuffer<float> sliceBuffer (1, sliceFrameCount);
-        sliceBuffer.copyFrom (0, 0, sourceBuffer, 0, startFrame, sliceFrameCount);
+        sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, sliceFrameCount);
 
         AudioFileIO::ConvertedAudio sliceAudio;
         sliceAudio.buffer = std::move (sliceBuffer);
         sliceAudio.sampleRate = kTargetSampleRate;
 
         if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
-        {
-            juce::Logger::writeToLog ("DeterministicPreviewHarness: slice write failed at " + outputFile.getFullPathName());
-            return false;
-        }
+            continue;
 
         SliceStateStore::SliceInfo info;
-        info.fileURL = sourceFile;
+        info.fileURL = candidateFile;
         info.startFrame = startFrame;
-        info.subdivisionSteps = 0;
+        info.subdivisionSteps = subdivisionSteps;
         info.snippetFrameCount = sliceFrameCount;
 
-        sliceInfos.push_back (info);
-        previewSnippetURLs.push_back (outputFile);
-        sliceVolumeSettings.push_back (1.0f);
+        pendingSliceInfos.push_back (info);
+        pendingPreviewSnippetURLs.push_back (outputFile);
+        pendingSliceVolumeSettings.push_back (1.0f);
     }
 
-    stateStore.setAlignedSlices (std::move (sliceInfos),
-                                 std::move (previewSnippetURLs),
-                                 std::move (sliceVolumeSettings));
-
-    return true;
+    return ! pendingSliceInfos.empty();
 }
 
 bool DeterministicPreviewHarness::buildPreviewChain()
 {
-    const SliceStateStore::SliceStateSnapshot snapshot = stateStore.getSnapshot();
-
-    if (snapshot.previewSnippetURLs.empty())
+    if (pendingPreviewSnippetURLs.empty())
     {
         juce::Logger::writeToLog ("DeterministicPreviewHarness: no snippets available for chain build");
         return false;
     }
 
-    const int totalSamples = sliceFrameCount * static_cast<int> (snapshot.previewSnippetURLs.size());
+    std::vector<juce::AudioBuffer<float>> snippetBuffers;
+    snippetBuffers.reserve (pendingPreviewSnippetURLs.size());
+
+    int totalSamples = 0;
+
+    for (const auto& snippetFile : pendingPreviewSnippetURLs)
+    {
+        AudioFileIO::ConvertedAudio snippetAudio;
+        juce::String formatDescription;
+
+        if (! audioFileIO.readToMonoBuffer (snippetFile, snippetAudio, formatDescription))
+        {
+            juce::Logger::writeToLog ("DeterministicPreviewHarness: snippet read failed for chain build");
+            return false;
+        }
+
+        totalSamples += snippetAudio.buffer.getNumSamples();
+        snippetBuffers.push_back (std::move (snippetAudio.buffer));
+    }
+
     juce::AudioBuffer<float> chainBuffer (1, totalSamples);
     chainBuffer.clear();
 
-    for (int index = 0; index < static_cast<int> (snapshot.previewSnippetURLs.size()); ++index)
+    int writePosition = 0;
+    for (const auto& snippetBuffer : snippetBuffers)
     {
-        const int startFrame = sliceStartFrames[index];
-        chainBuffer.copyFrom (0, index * sliceFrameCount, sourceBuffer, 0, startFrame, sliceFrameCount);
+        const int samplesToCopy = snippetBuffer.getNumSamples();
+        chainBuffer.copyFrom (0, writePosition, snippetBuffer, 0, 0, samplesToCopy);
+        writePosition += samplesToCopy;
     }
 
-    previewChainFile = getPreviewChainOutputFile (sourceFile);
+    previewChainFile = getPreviewChainOutputFile (pendingPreviewSnippetURLs.front());
 
     AudioFileIO::ConvertedAudio chainAudio;
     chainAudio.buffer = std::move (chainBuffer);
@@ -171,10 +235,12 @@ bool DeterministicPreviewHarness::buildPreviewChain()
         return false;
     }
 
-    stateStore.replaceAllState (snapshot.sliceInfos,
-                                snapshot.previewSnippetURLs,
-                                snapshot.sliceVolumeSettings,
+    stateStore.replaceAllState (std::move (pendingSliceInfos),
+                                std::move (pendingPreviewSnippetURLs),
+                                std::move (pendingSliceVolumeSettings),
                                 previewChainFile);
+
+    clearPendingState();
 
     return true;
 }

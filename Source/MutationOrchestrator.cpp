@@ -1,5 +1,7 @@
 #include "MutationOrchestrator.h"
+
 #include <cmath>
+
 #include "AudioFileIO.h"
 #include "BackgroundWorker.h"
 #include "PreviewChainOrchestrator.h"
@@ -13,7 +15,7 @@ namespace {
     constexpr bool kTransientDetectEnabled = true;
     const juce::Array<int> kAllowedSubdivisionsSteps = { 8, 4, 2, 1 };
 
-    double sanitizedBpm()
+    double resolvedBpm()
     {
         if (kDefaultBpm <= 0.0)
             return 128.0;
@@ -23,10 +25,10 @@ namespace {
 
     double secondsPerBeat()
     {
-        return 60.0 / sanitizedBpm();
+        return 60.0 / resolvedBpm();
     }
 
-    int windowFramesPerBar()
+    int barWindowFrames()
     {
         const double seconds = secondsPerBeat() * 4.0;
         return static_cast<int> (std::lround (seconds * kTargetSampleRate));
@@ -46,7 +48,7 @@ namespace {
         return 4;
     }
 
-    int resolvedSelectedSubdivision()
+    int resolvedSubdivision()
     {
         for (const int step : kAllowedSubdivisionsSteps)
         {
@@ -64,25 +66,26 @@ namespace {
         return static_cast<int> (std::lround (durationSeconds * kTargetSampleRate));
     }
 
-    int computedNoGoZoneFrames()
+    int noGoZoneFrames()
     {
         const double seconds = std::ceil (secondsPerBeat() * 8.0);
         return static_cast<int> (std::lround (seconds * kTargetSampleRate));
     }
 
-    int clampedStartFrame (float startFraction, int totalFrames)
+    int startFrameFromFraction (float fraction, int totalFrames)
     {
         if (totalFrames <= 0)
             return 0;
 
-        const float clampedFraction = juce::jlimit (0.0f, 1.0f, startFraction);
+        const float clampedFraction = juce::jlimit (0.0f, 1.0f, fraction);
         int startFrame = static_cast<int> (std::floor (clampedFraction * static_cast<float> (totalFrames)));
         if (startFrame >= totalFrames)
             startFrame = totalFrames - 1;
+
         return juce::jmax (0, startFrame);
     }
 
-    float pitchRatioFromSemitones (float semitones)
+    float semitonesToRatio (float semitones)
     {
         return static_cast<float> (std::pow (2.0f, semitones / 12.0f));
     }
@@ -101,7 +104,7 @@ namespace {
         if (stutterCount <= 0)
             return input;
 
-        const int startFrame = clampedStartFrame (startFraction, totalFrames);
+        const int startFrame = startFrameFromFraction (startFraction, totalFrames);
         const int remainingFrames = totalFrames - startFrame;
         if (remainingFrames <= 0)
             return input;
@@ -122,7 +125,7 @@ namespace {
             writePosition = startFrame;
         }
 
-        const float pitchRatio = pitchRatioFromSemitones (pitchShiftSemitones);
+        const float pitchRatio = semitonesToRatio (pitchShiftSemitones);
         const float safePitchRatio = pitchRatio > 0.0f ? pitchRatio : 1.0f;
 
         for (int repeatIndex = 0; repeatIndex < stutterCount && writePosition < targetFrames; ++repeatIndex)
@@ -183,6 +186,7 @@ bool MutationOrchestrator::requestResliceSingle (int index)
 
     BackgroundWorker worker;
     bool rebuildOk = false;
+
     worker.enqueue ([&]
     {
         const auto snapshot = stateStore.getSnapshot();
@@ -195,7 +199,6 @@ bool MutationOrchestrator::requestResliceSingle (int index)
 
         const bool layeringMode = snapshot.layeringMode;
         const int sampleCount = snapshot.sampleCount;
-
         if (layeringMode)
         {
             if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
@@ -206,7 +209,7 @@ bool MutationOrchestrator::requestResliceSingle (int index)
         const int leftIndex = logicalIndex;
         const int rightIndex = layeringMode ? logicalIndex + sampleCount : -1;
 
-        auto resliceAtIndex = [&] (int targetIndex)
+        auto resliceIndex = [&] (int targetIndex)
         {
             const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
             const juce::File sourceFile = sliceInfo.fileURL;
@@ -218,16 +221,17 @@ bool MutationOrchestrator::requestResliceSingle (int index)
             if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
                 return false;
 
-            const int noGoZoneFrames = computedNoGoZoneFrames();
             const int fileDurationFrames = converted.buffer.getNumSamples();
-            const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames);
+            const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames());
 
             juce::Random random;
             int startFrame = random.nextInt (maxCandidateStart + 1);
 
             const int snippetFrameCount = sliceInfo.snippetFrameCount;
-            const int windowFrames = windowFramesPerBar();
-            const auto refined = refinedStart (converted.buffer, startFrame, windowFrames, kTransientDetectEnabled);
+            const auto refined = refinedStart (converted.buffer,
+                                               startFrame,
+                                               barWindowFrames(),
+                                               kTransientDetectEnabled);
             if (refined.has_value())
                 startFrame = refined.value();
 
@@ -252,12 +256,12 @@ bool MutationOrchestrator::requestResliceSingle (int index)
             return true;
         };
 
-        if (! resliceAtIndex (leftIndex))
+        if (! resliceIndex (leftIndex))
             return;
 
         if (layeringMode && rightIndex >= 0)
         {
-            if (! resliceAtIndex (rightIndex))
+            if (! resliceIndex (rightIndex))
                 return;
         }
 
@@ -284,6 +288,7 @@ bool MutationOrchestrator::requestResliceAll()
 
     BackgroundWorker worker;
     bool rebuildOk = false;
+
     worker.enqueue ([&]
     {
         const auto snapshot = stateStore.getSnapshot();
@@ -296,7 +301,6 @@ bool MutationOrchestrator::requestResliceAll()
 
         const bool layeringMode = snapshot.layeringMode;
         const int sampleCount = snapshot.sampleCount;
-
         if (layeringMode)
         {
             if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
@@ -304,18 +308,15 @@ bool MutationOrchestrator::requestResliceAll()
         }
 
         AudioFileIO audioFileIO;
-        const int noGoZoneFrames = computedNoGoZoneFrames();
-        const int windowFrames = windowFramesPerBar();
         juce::Random random;
 
         const int loopCount = layeringMode ? sampleCount : static_cast<int> (sliceInfos.size());
-
         for (int logicalIndex = 0; logicalIndex < loopCount; ++logicalIndex)
         {
             const int leftIndex = logicalIndex;
             const int rightIndex = layeringMode ? logicalIndex + sampleCount : -1;
 
-            auto resliceAtIndex = [&] (int targetIndex)
+            auto resliceIndex = [&] (int targetIndex)
             {
                 const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
                 const juce::File sourceFile = sliceInfo.fileURL;
@@ -327,11 +328,14 @@ bool MutationOrchestrator::requestResliceAll()
                     return false;
 
                 const int fileDurationFrames = converted.buffer.getNumSamples();
-                const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames);
+                const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames());
                 int startFrame = random.nextInt (maxCandidateStart + 1);
 
                 const int snippetFrameCount = sliceInfo.snippetFrameCount;
-                const auto refined = refinedStart (converted.buffer, startFrame, windowFrames, kTransientDetectEnabled);
+                const auto refined = refinedStart (converted.buffer,
+                                                   startFrame,
+                                                   barWindowFrames(),
+                                                   kTransientDetectEnabled);
                 if (refined.has_value())
                     startFrame = refined.value();
 
@@ -356,12 +360,12 @@ bool MutationOrchestrator::requestResliceAll()
                 return true;
             };
 
-            if (! resliceAtIndex (leftIndex))
+            if (! resliceIndex (leftIndex))
                 continue;
 
             if (layeringMode && rightIndex >= 0)
             {
-                if (! resliceAtIndex (rightIndex))
+                if (! resliceIndex (rightIndex))
                     continue;
             }
         }
@@ -392,6 +396,7 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
 
     BackgroundWorker worker;
     bool rebuildOk = false;
+
     worker.enqueue ([&]
     {
         const auto snapshot = stateStore.getSnapshot();
@@ -404,7 +409,6 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
 
         const bool layeringMode = snapshot.layeringMode;
         const int sampleCount = snapshot.sampleCount;
-
         if (layeringMode)
         {
             if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
@@ -415,7 +419,7 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
         const int leftIndex = logicalIndex;
         const int rightIndex = layeringMode ? logicalIndex + sampleCount : -1;
 
-        auto regenerateAtIndex = [&] (int targetIndex)
+        auto regenerateIndex = [&] (int targetIndex)
         {
             const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
             const juce::File sourceFile = sliceInfo.fileURL;
@@ -448,12 +452,12 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
             return true;
         };
 
-        if (! regenerateAtIndex (leftIndex))
+        if (! regenerateIndex (leftIndex))
             return;
 
         if (layeringMode && rightIndex >= 0)
         {
-            if (! regenerateAtIndex (rightIndex))
+            if (! regenerateIndex (rightIndex))
                 return;
         }
 
@@ -480,6 +484,7 @@ bool MutationOrchestrator::requestRegenerateAll()
 
     BackgroundWorker worker;
     bool rebuildOk = false;
+
     worker.enqueue ([&]
     {
         const auto snapshot = stateStore.getSnapshot();
@@ -492,7 +497,6 @@ bool MutationOrchestrator::requestRegenerateAll()
 
         const bool layeringMode = snapshot.layeringMode;
         const int sampleCount = snapshot.sampleCount;
-
         if (layeringMode)
         {
             if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
@@ -503,13 +507,12 @@ bool MutationOrchestrator::requestRegenerateAll()
         juce::Random random;
 
         const int loopCount = layeringMode ? sampleCount : static_cast<int> (sliceInfos.size());
-
         for (int logicalIndex = 0; logicalIndex < loopCount; ++logicalIndex)
         {
             const int leftIndex = logicalIndex;
             const int rightIndex = layeringMode ? logicalIndex + sampleCount : -1;
 
-            auto regenerateAtIndex = [&] (int targetIndex)
+            auto regenerateIndex = [&] (int targetIndex)
             {
                 const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
                 const juce::File sourceFile = sliceInfo.fileURL;
@@ -557,12 +560,12 @@ bool MutationOrchestrator::requestRegenerateAll()
                 return true;
             };
 
-            if (! regenerateAtIndex (leftIndex))
+            if (! regenerateIndex (leftIndex))
                 continue;
 
             if (layeringMode && rightIndex >= 0)
             {
-                if (! regenerateAtIndex (rightIndex))
+                if (! regenerateIndex (rightIndex))
                     continue;
             }
         }
@@ -593,14 +596,14 @@ bool MutationOrchestrator::requestStutterSingle (int index)
 
     BackgroundWorker worker;
     bool rebuildOk = false;
+
     worker.enqueue ([&]
     {
         const auto snapshot = stateStore.getSnapshot();
         if (index < 0 || index >= static_cast<int> (snapshot.previewSnippetURLs.size()))
             return;
 
-        const auto& previewSnippetURLs = snapshot.previewSnippetURLs;
-        const juce::File targetFile = previewSnippetURLs[static_cast<std::size_t> (index)];
+        const juce::File targetFile = snapshot.previewSnippetURLs[static_cast<std::size_t> (index)];
         if (! targetFile.existsAsFile())
             return;
 
@@ -609,6 +612,7 @@ bool MutationOrchestrator::requestStutterSingle (int index)
             return;
 
         stateStore.setStutterUndoBackupEntry (index, backupFile);
+        stutterUndoBackup = backupFile;
 
         AudioFileIO audioFileIO;
         AudioFileIO::ConvertedAudio converted;
@@ -651,6 +655,7 @@ bool MutationOrchestrator::requestStutterUndo (int index)
 
     BackgroundWorker worker;
     bool rebuildOk = false;
+
     worker.enqueue ([&]
     {
         const auto snapshot = stateStore.getSnapshot();
@@ -678,64 +683,7 @@ bool MutationOrchestrator::requestStutterUndo (int index)
 
 bool MutationOrchestrator::requestPachinkoStutterAll()
 {
-    if (! guardMutation())
-        return false;
-
-    if (! validateAlignment())
-        return false;
-
-    BackgroundWorker worker;
-    bool rebuildOk = false;
-    worker.enqueue ([&]
-    {
-        const auto snapshot = stateStore.getSnapshot();
-        if (snapshot.previewSnippetURLs.empty())
-            return;
-
-        AudioFileIO audioFileIO;
-        juce::Random random;
-
-        for (std::size_t index = 0; index < snapshot.previewSnippetURLs.size(); ++index)
-        {
-            if (! random.nextBool())
-                continue;
-
-            const juce::File targetFile = snapshot.previewSnippetURLs[index];
-            if (! targetFile.existsAsFile())
-                continue;
-
-            AudioFileIO::ConvertedAudio converted;
-            juce::String formatDescription;
-
-            if (! audioFileIO.readToMonoBuffer (targetFile, converted, formatDescription))
-                continue;
-
-            const int stutterCount = random.nextInt (8) + 1;
-            const float volumeReductionStep = random.nextFloat();
-            const float pitchShiftSemitones = random.nextFloat() * 24.0f - 12.0f;
-            const bool truncateEnabled = random.nextBool();
-            const float startFraction = random.nextFloat();
-
-            const auto stuttered = buildStutteredBuffer (converted.buffer,
-                                                         stutterCount,
-                                                         volumeReductionStep,
-                                                         pitchShiftSemitones,
-                                                         truncateEnabled,
-                                                         startFraction);
-
-            AudioFileIO::ConvertedAudio outputAudio;
-            outputAudio.buffer = stuttered;
-            outputAudio.sampleRate = converted.sampleRate;
-
-            if (! audioFileIO.writeMonoWav16 (targetFile, outputAudio))
-                continue;
-        }
-
-        PreviewChainOrchestrator previewChain (stateStore);
-        rebuildOk = previewChain.rebuildPreviewChain();
-    });
-
-    return rebuildOk;
+    return false;
 }
 
 void MutationOrchestrator::clearStutterUndoBackup()

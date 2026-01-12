@@ -18,7 +18,10 @@ struct SliceProcessingFlags
     bool randomSubdivisionMode = false;
     MergeMode mergeMode = MergeMode::leftOnly;
     bool pachinkoStutterEnabled = false;
+    int sampleCount = 0;
 };
+
+// Pairing invariant (dormant): leftIndex = i, rightIndex = i + sampleCount.
 
 std::optional<int> refinedStart (const juce::AudioBuffer<float>& input,
                                  int startFrame,

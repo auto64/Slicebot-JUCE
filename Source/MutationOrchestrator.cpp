@@ -29,12 +29,14 @@ bool MutationOrchestrator::requestResliceSingle (int index)
         return false;
 
     BackgroundWorker worker;
-    worker.enqueue ([] {});
+    bool rebuildOk = false;
+    worker.enqueue ([&]
+    {
+        PreviewChainOrchestrator previewChain (stateStore);
+        rebuildOk = previewChain.rebuildPreviewChain();
+    });
 
-    PreviewChainOrchestrator previewChain (stateStore);
-    previewChain.rebuildPreviewChain();
-
-    return true;
+    return rebuildOk;
 }
 
 bool MutationOrchestrator::requestResliceAll()
@@ -46,12 +48,14 @@ bool MutationOrchestrator::requestResliceAll()
         return false;
 
     BackgroundWorker worker;
-    worker.enqueue ([] {});
+    bool rebuildOk = false;
+    worker.enqueue ([&]
+    {
+        PreviewChainOrchestrator previewChain (stateStore);
+        rebuildOk = previewChain.rebuildPreviewChain();
+    });
 
-    PreviewChainOrchestrator previewChain (stateStore);
-    previewChain.rebuildPreviewChain();
-
-    return true;
+    return rebuildOk;
 }
 
 bool MutationOrchestrator::requestRegenerateSingle (int index)
@@ -66,12 +70,14 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
         return false;
 
     BackgroundWorker worker;
-    worker.enqueue ([] {});
+    bool rebuildOk = false;
+    worker.enqueue ([&]
+    {
+        PreviewChainOrchestrator previewChain (stateStore);
+        rebuildOk = previewChain.rebuildPreviewChain();
+    });
 
-    PreviewChainOrchestrator previewChain (stateStore);
-    previewChain.rebuildPreviewChain();
-
-    return true;
+    return rebuildOk;
 }
 
 bool MutationOrchestrator::requestRegenerateAll()
@@ -83,12 +89,14 @@ bool MutationOrchestrator::requestRegenerateAll()
         return false;
 
     BackgroundWorker worker;
-    worker.enqueue ([] {});
+    bool rebuildOk = false;
+    worker.enqueue ([&]
+    {
+        PreviewChainOrchestrator previewChain (stateStore);
+        rebuildOk = previewChain.rebuildPreviewChain();
+    });
 
-    PreviewChainOrchestrator previewChain (stateStore);
-    previewChain.rebuildPreviewChain();
-
-    return true;
+    return rebuildOk;
 }
 
 void MutationOrchestrator::clearStutterUndoBackup()

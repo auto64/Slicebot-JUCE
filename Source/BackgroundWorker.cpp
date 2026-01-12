@@ -2,6 +2,8 @@
 
 BackgroundWorker::BackgroundWorker() = default;
 
-void BackgroundWorker::enqueue (std::function<void()>)
+void BackgroundWorker::enqueue (std::function<void()> job)
 {
+    if (job)
+        job();
 }

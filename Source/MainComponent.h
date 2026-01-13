@@ -31,6 +31,15 @@ private:
 class MainComponent final : public juce::Component
 {
 public:
+   enum class Tab
+    {
+        Main,
+        Global,
+        Local,
+        Live,
+        Settings
+    };
+
     explicit MainComponent (AudioEngine& engine);
     ~MainComponent() override = default;
 

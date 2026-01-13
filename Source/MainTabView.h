@@ -6,14 +6,30 @@ class MainTabView final : public juce::Component
 {
 public:
     MainTabView();
-    ~MainTabView() override = default;
+    ~MainTabView() override;
 
     void resized() override;
     void paint (juce::Graphics& g) override;
 
+    void setProgress (float progress);
+
 private:
+    static constexpr float kModeFontSize = 13.0f;
+
+    class ModeButtonLookAndFeel final : public juce::LookAndFeel_V4
+    {
+    public:
+        explicit ModeButtonLookAndFeel (float fontSizeToUse);
+        juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
+
+    private:
+        float fontSize;
+    };
+
     void configureSegmentButton (juce::TextButton& button, int groupId);
     void updateLiveModeState();
+
+    ModeButtonLookAndFeel modeLookAndFeel;
 
     juce::TextButton modeMultiFile { "Multi-file" };
     juce::TextButton modeSingleRandom { "Single file (Random)" };

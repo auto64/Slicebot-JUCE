@@ -31,6 +31,11 @@ namespace
         return juce::Colour (0xff8f8f8f);
     }
 
+    juce::Colour buttonOnGrey()
+    {
+        return juce::Colour (0xffdcdcdc);
+    }
+
     class WaveformArea final : public juce::Component
     {
     public:
@@ -92,8 +97,9 @@ namespace
         void configureSmallButton (juce::TextButton& button)
         {
             button.setColour (juce::TextButton::buttonColourId, buttonGrey());
+            button.setColour (juce::TextButton::buttonOnColourId, buttonOnGrey());
             button.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
-            button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+            button.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
         }
 
         juce::OwnedArray<juce::TextButton> leftButtons;
@@ -189,7 +195,9 @@ namespace
         {
             button.setButtonText (text);
             button.setColour (juce::TextButton::buttonColourId, buttonGrey());
+            button.setColour (juce::TextButton::buttonOnColourId, buttonOnGrey());
             button.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
+            button.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
         }
 
         juce::TextButton sliceAllButton;
@@ -212,10 +220,18 @@ namespace
             addAndMakeVisible (statusLabel);
         }
 
+        void setProgress (float progress)
+        {
+            progressValue = juce::jlimit (0.0f, 1.0f, progress);
+            repaint();
+        }
+
         void paint (juce::Graphics& g) override
         {
             g.setColour (juce::Colours::red);
-            g.drawLine (0.0f, 0.0f, static_cast<float> (getWidth()), 0.0f, 1.0f);
+            const float width = static_cast<float> (getWidth());
+            const float progressWidth = width * progressValue;
+            g.drawLine (0.0f, 0.0f, progressWidth, 0.0f, 1.0f);
         }
 
         void resized() override
@@ -225,10 +241,22 @@ namespace
 
     private:
         juce::Label statusLabel;
+        float progressValue = 0.0f;
     };
 }
 
+MainTabView::ModeButtonLookAndFeel::ModeButtonLookAndFeel (float fontSizeToUse)
+    : fontSize (fontSizeToUse)
+{
+}
+
+juce::Font MainTabView::ModeButtonLookAndFeel::getTextButtonFont (juce::TextButton&, int)
+{
+    return juce::Font (fontSize);
+}
+
 MainTabView::MainTabView()
+    : modeLookAndFeel (kModeFontSize)
 {
     configureSegmentButton (modeMultiFile, 100);
     configureSegmentButton (modeSingleRandom, 100);
@@ -243,6 +271,11 @@ MainTabView::MainTabView()
     configureSegmentButton (samplesFour, 300);
     configureSegmentButton (samplesEight, 300);
     configureSegmentButton (samplesSixteen, 300);
+
+    modeMultiFile.setLookAndFeel (&modeLookAndFeel);
+    modeSingleRandom.setLookAndFeel (&modeLookAndFeel);
+    modeSingleManual.setLookAndFeel (&modeLookAndFeel);
+    modeLive.setLookAndFeel (&modeLookAndFeel);
 
     modeMultiFile.setToggleState (true, juce::dontSendNotification);
     subdivHalfBar.setToggleState (true, juce::dontSendNotification);
@@ -297,6 +330,14 @@ MainTabView::MainTabView()
     updateLiveModeState();
 }
 
+MainTabView::~MainTabView()
+{
+    modeMultiFile.setLookAndFeel (nullptr);
+    modeSingleRandom.setLookAndFeel (nullptr);
+    modeSingleManual.setLookAndFeel (nullptr);
+    modeLive.setLookAndFeel (nullptr);
+}
+
 void MainTabView::paint (juce::Graphics& g)
 {
     g.fillAll (juce::Colour (0xff7a7a7a));
@@ -310,16 +351,17 @@ void MainTabView::resized()
     int y = 12;
 
     auto rowBounds = juce::Rectangle<int> (x, y, contentWidth, kRowHeight);
-    modeMultiFile.setBounds (rowBounds.removeFromLeft (contentWidth / 4));
-    modeSingleRandom.setBounds (rowBounds.removeFromLeft (contentWidth / 4));
-    modeSingleManual.setBounds (rowBounds.removeFromLeft (contentWidth / 4));
+    const int modeSegmentWidth = rowBounds.getWidth() / 4;
+    modeMultiFile.setBounds (rowBounds.removeFromLeft (modeSegmentWidth));
+    modeSingleRandom.setBounds (rowBounds.removeFromLeft (modeSegmentWidth));
+    modeSingleManual.setBounds (rowBounds.removeFromLeft (modeSegmentWidth));
     modeLive.setBounds (rowBounds);
 
     y += kRowHeight + kRowSpacing;
     rowBounds = juce::Rectangle<int> (x, y, contentWidth, kRowHeight);
     if (sourceButton.isVisible())
     {
-        sourceButton.setBounds (rowBounds.removeFromLeft (70));
+        sourceButton.setBounds (rowBounds.removeFromLeft (80));
         rowBounds.removeFromLeft (8);
     }
     subdivLabel.setBounds (rowBounds.removeFromLeft (55));
@@ -327,7 +369,7 @@ void MainTabView::resized()
     subdivQuarterBar.setBounds (rowBounds.removeFromLeft (90));
     subdivEighthNote.setBounds (rowBounds.removeFromLeft (90));
     subdivSixteenthNote.setBounds (rowBounds.removeFromLeft (90));
-    subdivRandom.setBounds (rowBounds.removeFromLeft (70));
+    subdivRandom.setBounds (rowBounds.removeFromLeft (80));
 
     y += kRowHeight + kRowSpacing;
     rowBounds = juce::Rectangle<int> (x, y, contentWidth, kRowHeight);
@@ -358,10 +400,20 @@ void MainTabView::configureSegmentButton (juce::TextButton& button, int groupId)
 {
     button.setClickingTogglesState (true);
     button.setRadioGroupId (groupId);
+    button.setColour (juce::TextButton::buttonColourId, buttonGrey());
+    button.setColour (juce::TextButton::buttonOnColourId, buttonOnGrey());
+    button.setColour (juce::TextButton::textColourOffId, juce::Colours::black);
+    button.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
 }
 
 void MainTabView::updateLiveModeState()
 {
     const bool isLive = modeLive.getToggleState();
     sourceButton.setVisible (! isLive);
+}
+
+void MainTabView::setProgress (float progress)
+{
+    if (auto* status = dynamic_cast<StatusArea*> (statusArea.get()))
+        status->setProgress (progress);
 }

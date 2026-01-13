@@ -31,7 +31,7 @@ private:
 class MainComponent final : public juce::Component
 {
 public:
-   enum class Tab
+    enum class Tab
     {
         Main,
         Global,

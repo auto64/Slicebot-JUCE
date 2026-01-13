@@ -11,29 +11,61 @@ namespace
         }
     };
 
-    class GridPlaceholder final : public juce::Component
+    class GridCell final : public juce::Component
     {
     public:
+        explicit GridCell (int indexToDraw)
+            : index (indexToDraw)
+        {
+        }
+
         void paint (juce::Graphics& g) override
         {
             g.fillAll (juce::Colours::darkgrey);
-
-            const int cellW = 150;
-            const int cellH = 64;
-            const int spacing = 3;
-
             g.setColour (juce::Colours::grey);
+            g.drawRect (getLocalBounds(), 1);
+        }
 
-            for (int row = 0; row < 4; ++row)
+    private:
+        int index = 0;
+    };
+
+    class PreviewGrid final : public juce::Component
+    {
+    public:
+        PreviewGrid()
+        {
+            for (int index = 0; index < totalCells; ++index)
             {
-                for (int col = 0; col < 4; ++col)
+                auto cell = std::make_unique<GridCell> (index);
+                addAndMakeVisible (*cell);
+                cells.add (std::move (cell));
+            }
+        }
+
+        void resized() override
+        {
+            for (int row = 0; row < rows; ++row)
+            {
+                for (int col = 0; col < columns; ++col)
                 {
+                    const int index = row * columns + col;
                     const int x = col * (cellW + spacing);
                     const int y = row * (cellH + spacing);
-                    g.fillRect (x, y, cellW, cellH);
+                    cells[index]->setBounds (x, y, cellW, cellH);
                 }
             }
         }
+
+    private:
+        static constexpr int columns = 4;
+        static constexpr int rows = 4;
+        static constexpr int totalCells = columns * rows;
+        static constexpr int cellW = 150;
+        static constexpr int cellH = 64;
+        static constexpr int spacing = 3;
+
+        juce::OwnedArray<GridCell> cells;
     };
 
     class PersistentFrame final : public juce::Component,
@@ -44,15 +76,22 @@ namespace
             : tabs (tabsToTrack)
         {
             addAndMakeVisible (focusPlaceholder);
-            addAndMakeVisible (gridPlaceholder);
+            addAndMakeVisible (grid);
             addAndMakeVisible (bottomPlaceholder);
             tabs.getTabbedButtonBar().addChangeListener (this);
+
+            // Settings bypass path: hide frame while Settings tab is active.
             setVisible (tabs.getCurrentTabName() != "SETTINGS");
         }
 
         ~PersistentFrame() override
         {
             tabs.getTabbedButtonBar().removeChangeListener (this);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (juce::Colours::grey);
         }
 
         void resized() override
@@ -67,7 +106,7 @@ namespace
             int y = 0;
             focusPlaceholder.setBounds (0, y, focusW, focusH);
             y += focusH + spacing;
-            gridPlaceholder.setBounds (0, y, gridW, gridH);
+            grid.setBounds (0, y, gridW, gridH);
             y += gridH + spacing;
             bottomPlaceholder.setBounds (0, y, gridW, bottomH);
         }
@@ -75,12 +114,13 @@ namespace
     private:
         void changeListenerCallback (juce::ChangeBroadcaster*) override
         {
+            // Settings bypass path: hide frame while Settings tab is active.
             setVisible (tabs.getCurrentTabName() != "SETTINGS");
         }
 
         juce::TabbedComponent& tabs;
         GreyPlaceholder focusPlaceholder;
-        GridPlaceholder gridPlaceholder;
+        PreviewGrid grid;
         GreyPlaceholder bottomPlaceholder;
     };
 
@@ -111,6 +151,11 @@ namespace
                 liveHeader.addAndMakeVisible (content);
         }
 
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (juce::Colours::grey);
+        }
+
         void resized() override
         {
             const auto bounds = getLocalBounds();
@@ -130,12 +175,16 @@ namespace
         {
             const auto currentTab = tabs.getCurrentTabName();
 
+            // Header region ownership (per-tab visibility).
             const bool showMain = currentTab == "MAIN";
             const bool showGlobal = currentTab == "GLOBAL";
             const bool showLocal = currentTab == "LOCAL";
             const bool showLive = currentTab == "LIVE";
 
+            // Settings bypass path: hide header while Settings tab is active.
             setVisible (currentTab != "SETTINGS");
+
+            // Centralized header visibility toggles.
             mainHeader.setVisible (showMain);
             globalHeader.setVisible (showGlobal);
             localHeader.setVisible (showLocal);
@@ -147,6 +196,84 @@ namespace
         GreyPlaceholder globalHeader;
         GreyPlaceholder localHeader;
         juce::Component liveHeader;
+    };
+
+    class ContentArea final : public juce::Component,
+                              private juce::ChangeListener
+    {
+    public:
+        ContentArea (juce::TabbedComponent& tabsToTrack,
+                     SettingsView& settingsToUse,
+                     juce::Component* liveContent)
+            : tabs (tabsToTrack),
+              settingsView (settingsToUse),
+              persistentFrame (tabsToTrack),
+              headerContainer (tabsToTrack)
+        {
+            headerContainer.setLiveContent (liveContent);
+            addAndMakeVisible (headerContainer);
+            addAndMakeVisible (persistentFrame);
+            addAndMakeVisible (settingsView);
+
+            tabs.getTabbedButtonBar().addChangeListener (this);
+            updateVisibleContent();
+        }
+
+        ~ContentArea() override
+        {
+            tabs.getTabbedButtonBar().removeChangeListener (this);
+        }
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (juce::Colour (0xff7a7a7a));
+        }
+        void resized() override
+        {
+            const int headerH = 150;
+
+            const int focusH = 96;
+            const int gridH = 4 * 64 + 3 * 3;
+            const int spacing = 6;
+            const int bottomH = 25;
+            const int frameH = focusH + spacing + gridH + spacing + bottomH;
+
+            const int headerTopPadding = 16;
+const int headerBottomPadding = -10;
+
+headerContainer.setBounds (
+    5,                                    // left inset
+    headerTopPadding,
+    609 - 5 - 5,                          // width minus left/right inset
+    headerH - headerTopPadding + headerBottomPadding
+);
+
+persistentFrame.setBounds (
+    0,
+    headerH,
+    609,
+    frameH
+);
+            settingsView.setBounds (getLocalBounds());
+        }
+
+    private:
+        void changeListenerCallback (juce::ChangeBroadcaster*) override
+        {
+            updateVisibleContent();
+        }
+
+        void updateVisibleContent()
+        {
+            const bool isSettings = tabs.getCurrentTabName() == "SETTINGS";
+            settingsView.setVisible (isSettings);
+            headerContainer.setVisible (! isSettings);
+            persistentFrame.setVisible (! isSettings);
+        }
+
+        juce::TabbedComponent& tabs;
+        SettingsView& settingsView;
+        PersistentFrame persistentFrame;
+        TabHeaderContainer headerContainer;
     };
 }
 
@@ -185,15 +312,6 @@ MainComponent::MainComponent (AudioEngine& engine)
     recorderModule =
         std::make_unique<LiveRecorderModuleView> (engine, 0);
 
-    auto* persistentFrame = new PersistentFrame (tabs);
-    persistentFrame->setComponentID ("persistentFrame");
-    addAndMakeVisible (persistentFrame);
-
-    auto* headerContainer = new TabHeaderContainer (tabs);
-    headerContainer->setComponentID ("tabHeaders");
-    headerContainer->setLiveContent (recorderModule.get());
-    addAndMakeVisible (headerContainer);
-
     tabs.addTab ("MAIN",
                  juce::Colours::darkgrey,
                  new juce::Component(),
@@ -216,32 +334,26 @@ MainComponent::MainComponent (AudioEngine& engine)
 
     tabs.addTab ("SETTINGS",
                  juce::Colours::darkgrey,
-                 &settingsView,
-                 false);
+                 new juce::Component(),
+                 true);
 
     addAndMakeVisible (tabs);
-    
+
+    auto* contentArea = new ContentArea (tabs, settingsView, recorderModule.get());
+    contentArea->setComponentID ("contentArea");
+    addAndMakeVisible (contentArea);
+
 }
 
 void MainComponent::resized()
 {
-    tabs.setBounds (getLocalBounds());
+    const int tabStripH = 25;
 
-    const int headerH = 25;
+    tabs.setTabBarDepth (tabStripH);
+    tabs.setBounds (0, 0, getWidth(), tabStripH);
 
-    if (auto* frame = findChildWithID ("persistentFrame"))
+    if (auto* contentArea = findChildWithID ("contentArea"))
     {
-        const int focusH = 96;
-        const int gridH = 4 * 64 + 3 * 3;
-        const int spacing = 6;
-        const int bottomH = 25;
-        const int frameH = focusH + spacing + gridH + spacing + bottomH;
-
-        frame->setBounds (0, headerH, 609, frameH);
-    }
-
-    if (auto* headers = findChildWithID ("tabHeaders"))
-    {
-        headers->setBounds (0, 0, 609, headerH);
+        contentArea->setBounds (0, tabStripH, getWidth(), getHeight() - tabStripH);
     }
 }

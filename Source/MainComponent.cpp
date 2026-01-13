@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "MainTabView.h"
 
 namespace
 {
@@ -214,6 +215,7 @@ namespace
             addAndMakeVisible (headerContainer);
             addAndMakeVisible (persistentFrame);
             addAndMakeVisible (settingsView);
+            addAndMakeVisible (mainTabView);
 
             tabs.getTabbedButtonBar().addChangeListener (this);
             updateVisibleContent();
@@ -223,10 +225,12 @@ namespace
         {
             tabs.getTabbedButtonBar().removeChangeListener (this);
         }
+
         void paint (juce::Graphics& g) override
         {
             g.fillAll (juce::Colour (0xff7a7a7a));
         }
+
         void resized() override
         {
             const int headerH = 150;
@@ -238,22 +242,24 @@ namespace
             const int frameH = focusH + spacing + gridH + spacing + bottomH;
 
             const int headerTopPadding = 16;
-const int headerBottomPadding = -10;
+            const int headerBottomPadding = -10;
 
-headerContainer.setBounds (
-    5,                                    // left inset
-    headerTopPadding,
-    609 - 5 - 5,                          // width minus left/right inset
-    headerH - headerTopPadding + headerBottomPadding
-);
+            headerContainer.setBounds (
+                5,
+                headerTopPadding,
+                609 - 5 - 5,
+                headerH - headerTopPadding + headerBottomPadding
+            );
 
-persistentFrame.setBounds (
-    0,
-    headerH,
-    609,
-    frameH
-);
+            persistentFrame.setBounds (
+                0,
+                headerH,
+                609,
+                frameH
+            );
+
             settingsView.setBounds (getLocalBounds());
+            mainTabView.setBounds (getLocalBounds());
         }
 
     private:
@@ -264,16 +270,21 @@ persistentFrame.setBounds (
 
         void updateVisibleContent()
         {
-            const bool isSettings = tabs.getCurrentTabName() == "SETTINGS";
+            const auto currentTab = tabs.getCurrentTabName();
+            const bool isSettings = currentTab == "SETTINGS";
+            const bool isMain = currentTab == "MAIN";
+
             settingsView.setVisible (isSettings);
-            headerContainer.setVisible (! isSettings);
-            persistentFrame.setVisible (! isSettings);
+            mainTabView.setVisible (isMain);
+            headerContainer.setVisible (! isSettings && ! isMain);
+            persistentFrame.setVisible (! isSettings && ! isMain);
         }
 
         juce::TabbedComponent& tabs;
         SettingsView& settingsView;
         PersistentFrame persistentFrame;
         TabHeaderContainer headerContainer;
+        MainTabView mainTabView;
     };
 }
 
@@ -284,7 +295,7 @@ persistentFrame.setBounds (
 SettingsView::SettingsView (AudioEngine& engine)
     : audioEngine (engine)
 {
-    deviceSelector = std::unique_ptr<juce::AudioDeviceSelectorComponent>(
+    deviceSelector = std::unique_ptr<juce::AudioDeviceSelectorComponent> (
         new juce::AudioDeviceSelectorComponent (
             audioEngine.getDeviceManager(),
             0, 256,   // allow inputs
@@ -342,7 +353,6 @@ MainComponent::MainComponent (AudioEngine& engine)
     auto* contentArea = new ContentArea (tabs, settingsView, recorderModule.get());
     contentArea->setComponentID ("contentArea");
     addAndMakeVisible (contentArea);
-
 }
 
 void MainComponent::resized()

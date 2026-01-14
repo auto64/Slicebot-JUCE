@@ -49,18 +49,18 @@ namespace
         return static_cast<int> (std::lround (seconds * kTargetSampleRate));
     }
 
-    int subdivisionToBeats (int subdivisionSteps)
+    double subdivisionToQuarterNotes (int subdivisionSteps)
     {
         switch (subdivisionSteps)
         {
-            case 8: return 8;
-            case 4: return 4;
-            case 2: return 2;
-            case 1: return 1;
+            case 8: return 8.0;  // half bar
+            case 4: return 4.0;  // quarter bar (one beat)
+            case 2: return 2.0;  // eighth note
+            case 1: return 1.0;  // sixteenth note
             default: break;
         }
 
-        return 4;
+        return 4.0;
     }
 
     int resolvedSelectedSubdivision()
@@ -76,8 +76,8 @@ namespace
 
     int subdivisionToFrameCount (int subdivisionSteps)
     {
-        const int beats = subdivisionToBeats (subdivisionSteps);
-        const double durationSeconds = secondsPerBeat() * static_cast<double> (beats);
+        const double quarterNotes = subdivisionToQuarterNotes (subdivisionSteps);
+        const double durationSeconds = secondsPerBeat() * (quarterNotes / 4.0);
         return static_cast<int> (std::lround (durationSeconds * kTargetSampleRate));
     }
 

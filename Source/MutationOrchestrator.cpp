@@ -37,18 +37,18 @@ namespace {
         return static_cast<int> (std::lround (seconds * kTargetSampleRate));
     }
 
-    int subdivisionToBeats (int subdivisionSteps)
+    double subdivisionToQuarterNotes (int subdivisionSteps)
     {
         switch (subdivisionSteps)
         {
-            case 16: return 16;
-            case 8: return 8;
-            case 4: return 4;
-            case 2: return 2;
+            case 2: return 8.0;  // half bar
+            case 4: return 4.0;  // quarter bar (one beat)
+            case 8: return 2.0;  // eighth note
+            case 16: return 1.0; // sixteenth note
             default: break;
         }
 
-        return 4;
+        return 4.0;
     }
 
     int resolvedSubdivision (int subdivisionSteps)
@@ -64,8 +64,8 @@ namespace {
 
     int subdivisionToFrameCount (double bpm, int subdivisionSteps)
     {
-        const int beats = subdivisionToBeats (subdivisionSteps);
-        const double durationSeconds = secondsPerBeat (bpm) * static_cast<double> (beats);
+        const double quarterNotes = subdivisionToQuarterNotes (subdivisionSteps);
+        const double durationSeconds = secondsPerBeat (bpm) * (quarterNotes / 4.0);
         return static_cast<int> (std::lround (durationSeconds * kTargetSampleRate));
     }
 
@@ -232,40 +232,59 @@ bool MutationOrchestrator::requestResliceSingle (int index)
             const juce::File sourceFile = sliceInfo.fileURL;
 
             AudioFileIO audioFileIO;
-            AudioFileIO::ConvertedAudio converted;
             juce::String formatDescription;
 
-            if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
+            int fileDurationFrames = 0;
+            if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
                 return false;
 
-            const int fileDurationFrames = converted.buffer.getNumSamples();
             const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
 
             juce::Random random;
             int startFrame = random.nextInt (maxCandidateStart + 1);
 
             const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
-            const auto refined = refinedStart (converted.buffer,
-                                               startFrame,
-                                               barWindowFrames (bpm),
-                                               transientDetectEnabled);
-            if (refined.has_value())
-                startFrame = refined.value();
-
-            if (startFrame + snippetFrameCount > fileDurationFrames)
-                return false;
-
             const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (targetIndex)];
 
-            juce::AudioBuffer<float> sliceBuffer (1, snippetFrameCount);
-            sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, snippetFrameCount);
+            if (transientDetectEnabled)
+            {
+                AudioFileIO::ConvertedAudio converted;
+                if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
+                    return false;
 
-            AudioFileIO::ConvertedAudio sliceAudio;
-            sliceAudio.buffer = std::move (sliceBuffer);
-            sliceAudio.sampleRate = kTargetSampleRate;
+                const auto refined = refinedStart (converted.buffer,
+                                                   startFrame,
+                                                   barWindowFrames (bpm),
+                                                   transientDetectEnabled);
+                if (refined.has_value())
+                    startFrame = refined.value();
 
-            if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
-                return false;
+                fileDurationFrames = converted.buffer.getNumSamples();
+                if (startFrame + snippetFrameCount > fileDurationFrames)
+                    return false;
+
+                juce::AudioBuffer<float> sliceBuffer (1, snippetFrameCount);
+                sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, snippetFrameCount);
+
+                AudioFileIO::ConvertedAudio sliceAudio;
+                sliceAudio.buffer = std::move (sliceBuffer);
+                sliceAudio.sampleRate = kTargetSampleRate;
+
+                if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
+                    return false;
+            }
+            else
+            {
+                if (startFrame + snippetFrameCount > fileDurationFrames)
+                    return false;
+
+                AudioFileIO::ConvertedAudio sliceAudio;
+                if (! audioFileIO.readToMonoBufferSegment (sourceFile, startFrame, snippetFrameCount, sliceAudio, formatDescription))
+                    return false;
+
+                if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
+                    return false;
+            }
 
             SliceStateStore::SliceInfo updatedInfo = sliceInfo;
             updatedInfo.startFrame = startFrame;
@@ -339,20 +358,27 @@ bool MutationOrchestrator::requestResliceAll()
 
             auto resliceIndex = [&] (int targetIndex)
             {
-                const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
-                const juce::File sourceFile = sliceInfo.fileURL;
+            const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
+            const juce::File sourceFile = sliceInfo.fileURL;
 
+            juce::String formatDescription;
+
+            int fileDurationFrames = 0;
+            if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
+                return false;
+
+            const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
+            int startFrame = random.nextInt (maxCandidateStart + 1);
+
+            const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
+            const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (targetIndex)];
+
+            if (transientDetectEnabled)
+            {
                 AudioFileIO::ConvertedAudio converted;
-                juce::String formatDescription;
-
                 if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
                     return false;
 
-                const int fileDurationFrames = converted.buffer.getNumSamples();
-                const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
-                int startFrame = random.nextInt (maxCandidateStart + 1);
-
-                const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
                 const auto refined = refinedStart (converted.buffer,
                                                    startFrame,
                                                    barWindowFrames (bpm),
@@ -360,10 +386,9 @@ bool MutationOrchestrator::requestResliceAll()
                 if (refined.has_value())
                     startFrame = refined.value();
 
+                fileDurationFrames = converted.buffer.getNumSamples();
                 if (startFrame + snippetFrameCount > fileDurationFrames)
                     return false;
-
-                const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (targetIndex)];
 
                 juce::AudioBuffer<float> sliceBuffer (1, snippetFrameCount);
                 sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, snippetFrameCount);
@@ -374,10 +399,23 @@ bool MutationOrchestrator::requestResliceAll()
 
                 if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
                     return false;
+            }
+            else
+            {
+                if (startFrame + snippetFrameCount > fileDurationFrames)
+                    return false;
 
-                SliceStateStore::SliceInfo updatedInfo = sliceInfo;
-                updatedInfo.startFrame = startFrame;
-                updatedInfo.snippetFrameCount = snippetFrameCount;
+                AudioFileIO::ConvertedAudio sliceAudio;
+                if (! audioFileIO.readToMonoBufferSegment (sourceFile, startFrame, snippetFrameCount, sliceAudio, formatDescription))
+                    return false;
+
+                if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
+                    return false;
+            }
+
+            SliceStateStore::SliceInfo updatedInfo = sliceInfo;
+            updatedInfo.startFrame = startFrame;
+            updatedInfo.snippetFrameCount = snippetFrameCount;
                 sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
                 return true;
             };
@@ -454,40 +492,59 @@ bool MutationOrchestrator::requestSliceAll()
                 if (! sourceFile.existsAsFile())
                     continue;
 
-                AudioFileIO::ConvertedAudio converted;
                 juce::String formatDescription;
 
-                if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
+                int fileDurationFrames = 0;
+                if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
                     continue;
 
-                const int fileDurationFrames = converted.buffer.getNumSamples();
                 if (fileDurationFrames <= 0)
                     continue;
 
                 const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
                 int startFrame = random.nextInt (maxCandidateStart + 1);
 
-                const auto refined = refinedStart (converted.buffer,
-                                                   startFrame,
-                                                   barWindowFrames (bpm),
-                                                   snapshot.transientDetectionEnabled);
-                if (refined.has_value())
-                    startFrame = refined.value();
-
-                if (startFrame + snippetFrameCount > fileDurationFrames)
-                    continue;
-
                 const juce::File outputFile = sourceFile.getSiblingFile ("slice_" + juce::String (index) + ".wav");
 
-                juce::AudioBuffer<float> sliceBuffer (1, snippetFrameCount);
-                sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, snippetFrameCount);
+                if (snapshot.transientDetectionEnabled)
+                {
+                    AudioFileIO::ConvertedAudio converted;
+                    if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
+                        continue;
 
-                AudioFileIO::ConvertedAudio sliceAudio;
-                sliceAudio.buffer = std::move (sliceBuffer);
-                sliceAudio.sampleRate = kTargetSampleRate;
+                    const auto refined = refinedStart (converted.buffer,
+                                                       startFrame,
+                                                       barWindowFrames (bpm),
+                                                       snapshot.transientDetectionEnabled);
+                    if (refined.has_value())
+                        startFrame = refined.value();
 
-                if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
-                    continue;
+                    fileDurationFrames = converted.buffer.getNumSamples();
+                    if (startFrame + snippetFrameCount > fileDurationFrames)
+                        continue;
+
+                    juce::AudioBuffer<float> sliceBuffer (1, snippetFrameCount);
+                    sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, snippetFrameCount);
+
+                    AudioFileIO::ConvertedAudio sliceAudio;
+                    sliceAudio.buffer = std::move (sliceBuffer);
+                    sliceAudio.sampleRate = kTargetSampleRate;
+
+                    if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
+                        continue;
+                }
+                else
+                {
+                    if (startFrame + snippetFrameCount > fileDurationFrames)
+                        continue;
+
+                    AudioFileIO::ConvertedAudio sliceAudio;
+                    if (! audioFileIO.readToMonoBufferSegment (sourceFile, startFrame, snippetFrameCount, sliceAudio, formatDescription))
+                        continue;
+
+                    if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
+                        continue;
+                }
 
                 SliceStateStore::SliceInfo info;
                 info.fileURL = sourceFile;
@@ -564,25 +621,21 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
             const int startFrame = sliceInfo.startFrame;
             const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
 
-            AudioFileIO audioFileIO;
-            AudioFileIO::ConvertedAudio converted;
             juce::String formatDescription;
-
-            if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
-                return false;
-
-            const int fileDurationFrames = converted.buffer.getNumSamples();
-            if (startFrame + snippetFrameCount > fileDurationFrames)
-                return false;
 
             const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (targetIndex)];
 
-            juce::AudioBuffer<float> sliceBuffer (1, snippetFrameCount);
-            sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, snippetFrameCount);
+            AudioFileIO audioFileIO;
+            int fileDurationFrames = 0;
+            if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
+                return false;
 
             AudioFileIO::ConvertedAudio sliceAudio;
-            sliceAudio.buffer = std::move (sliceBuffer);
-            sliceAudio.sampleRate = kTargetSampleRate;
+            if (startFrame + snippetFrameCount > fileDurationFrames)
+                return false;
+
+            if (! audioFileIO.readToMonoBufferSegment (sourceFile, startFrame, snippetFrameCount, sliceAudio, formatDescription))
+                return false;
 
             if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
                 return false;
@@ -661,24 +714,20 @@ bool MutationOrchestrator::requestRegenerateAll()
                 const int startFrame = sliceInfo.startFrame;
                 const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
 
-                AudioFileIO::ConvertedAudio converted;
                 juce::String formatDescription;
-
-                if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
-                    return false;
-
-                const int fileDurationFrames = converted.buffer.getNumSamples();
-                if (startFrame + snippetFrameCount > fileDurationFrames)
-                    return false;
 
                 const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (targetIndex)];
 
-                juce::AudioBuffer<float> sliceBuffer (1, snippetFrameCount);
-                sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, snippetFrameCount);
+                int fileDurationFrames = 0;
+                if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
+                    return false;
 
                 AudioFileIO::ConvertedAudio sliceAudio;
-                sliceAudio.buffer = std::move (sliceBuffer);
-                sliceAudio.sampleRate = kTargetSampleRate;
+                if (startFrame + snippetFrameCount > fileDurationFrames)
+                    return false;
+
+                if (! audioFileIO.readToMonoBufferSegment (sourceFile, startFrame, snippetFrameCount, sliceAudio, formatDescription))
+                    return false;
 
                 if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
                     return false;

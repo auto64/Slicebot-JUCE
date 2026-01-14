@@ -44,6 +44,24 @@ namespace
 
         return resampled;
     }
+
+    juce::AudioBuffer<float> trimOrPadToTarget (const juce::AudioBuffer<float>& input, int targetSamples)
+    {
+        if (targetSamples <= 0)
+            return input;
+
+        const int availableSamples = input.getNumSamples();
+        if (availableSamples == targetSamples)
+            return input;
+
+        juce::AudioBuffer<float> output (1, targetSamples);
+        output.clear();
+
+        const int copySamples = juce::jmin (availableSamples, targetSamples);
+        output.copyFrom (0, 0, input, 0, 0, copySamples);
+
+        return output;
+    }
 }
 
 AudioFileIO::AudioFileIO()
@@ -85,6 +103,78 @@ bool AudioFileIO::readToMonoBuffer (const juce::File& inputFile,
     output.sampleRate = kTargetSampleRate;
 
     return true;
+}
+
+bool AudioFileIO::readToMonoBufferSegment (const juce::File& inputFile,
+                                           int startFrame,
+                                           int frameCount,
+                                           ConvertedAudio& output,
+                                           juce::String& formatDescription) const
+{
+    std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (inputFile));
+    if (reader == nullptr)
+    {
+        formatDescription = "unrecognized format";
+        return false;
+    }
+
+    formatDescription = describeFormat (*reader);
+
+    if (frameCount <= 0)
+        return false;
+
+    const double sourceRate = reader->sampleRate;
+    const double ratio = sourceRate / kTargetSampleRate;
+    const auto startSample = static_cast<juce::int64> (std::floor (static_cast<double> (startFrame) * ratio));
+    const auto requestedSamples = static_cast<juce::int64> (std::ceil (static_cast<double> (frameCount) * ratio));
+    const juce::int64 totalSamples = reader->lengthInSamples;
+
+    if (startSample >= totalSamples)
+        return false;
+
+    const juce::int64 availableSamples = totalSamples - startSample;
+    const int samplesToRead = static_cast<int> (juce::jmin (availableSamples, requestedSamples));
+    if (samplesToRead <= 0)
+        return false;
+
+    juce::AudioBuffer<float> tempBuffer (static_cast<int> (reader->numChannels), samplesToRead);
+    if (! reader->read (&tempBuffer, 0, samplesToRead, startSample, true, true))
+        return false;
+
+    const bool needsDownmix = tempBuffer.getNumChannels() != kTargetChannels;
+    const bool needsResample = ! juce::approximatelyEqual (reader->sampleRate, kTargetSampleRate);
+    if (needsDownmix || needsResample)
+        formatDescription = formatDescription + " -> converted to 44.1k/mono";
+
+    juce::AudioBuffer<float> monoBuffer = needsDownmix
+        ? mixToMono (tempBuffer)
+        : tempBuffer;
+
+    juce::AudioBuffer<float> resampled = resampleToTarget (monoBuffer, reader->sampleRate);
+    juce::AudioBuffer<float> trimmed = trimOrPadToTarget (resampled, frameCount);
+
+    output.buffer = std::move (trimmed);
+    output.sampleRate = kTargetSampleRate;
+
+    return true;
+}
+
+bool AudioFileIO::getFileDurationFrames (const juce::File& inputFile,
+                                         int& durationFrames,
+                                         juce::String& formatDescription) const
+{
+    std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (inputFile));
+    if (reader == nullptr)
+    {
+        formatDescription = "unrecognized format";
+        return false;
+    }
+
+    formatDescription = describeFormat (*reader);
+
+    const double ratio = kTargetSampleRate / reader->sampleRate;
+    durationFrames = static_cast<int> (std::ceil (static_cast<double> (reader->lengthInSamples) * ratio));
+    return durationFrames > 0;
 }
 
 bool AudioFileIO::writeMonoWav16 (const juce::File& outputFile,

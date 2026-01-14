@@ -17,6 +17,16 @@ public:
                            ConvertedAudio& output,
                            juce::String& formatDescription) const;
 
+    bool readToMonoBufferSegment (const juce::File& inputFile,
+                                  int startFrame,
+                                  int frameCount,
+                                  ConvertedAudio& output,
+                                  juce::String& formatDescription) const;
+
+    bool getFileDurationFrames (const juce::File& inputFile,
+                                int& durationFrames,
+                                juce::String& formatDescription) const;
+
     bool writeMonoWav16 (const juce::File& outputFile,
                          const ConvertedAudio& input) const;
 

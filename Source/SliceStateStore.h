@@ -37,6 +37,10 @@ public:
         juce::File sourceDirectory;
         juce::File sourceFile;
         AudioCacheStore::CacheData cacheData;
+        double bpm = 128.0;
+        int subdivisionSteps = 4;
+        int sampleCountSetting = 16;
+        bool transientDetectionEnabled = true;
         std::vector<SliceInfo> sliceInfos;
         std::vector<juce::File> previewSnippetURLs;
         std::vector<float> sliceVolumeSettings;
@@ -60,6 +64,10 @@ public:
     SliceStateSnapshot getSnapshot() const;
 
     void setCacheData (AudioCacheStore::CacheData newCacheData);
+    void setSliceSettings (double newBpm,
+                           int newSubdivisionSteps,
+                           int newSampleCountSetting,
+                           bool newTransientDetectionEnabled);
 
     void setAlignedSlices (std::vector<SliceInfo> newSliceInfos,
                            std::vector<juce::File> newPreviewSnippetURLs,
@@ -95,6 +103,10 @@ private:
     juce::File sourceDirectory;
     juce::File sourceFile;
     AudioCacheStore::CacheData cacheData;
+    double bpm = 128.0;
+    int subdivisionSteps = 4;
+    int sampleCountSetting = 16;
+    bool transientDetectionEnabled = true;
     std::vector<SliceInfo> sliceInfos;
     std::vector<juce::File> previewSnippetURLs;
     std::vector<float> sliceVolumeSettings;

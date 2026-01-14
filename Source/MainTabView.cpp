@@ -337,20 +337,27 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
 
     sourceButton.onClick = [this]()
     {
-        sourceDirectoryChooser = std::make_unique<juce::FileChooser> (
-            "Select Source Folder",
+        const bool isManualSingle = modeSingleManual.getToggleState();
+        const auto chooserTitle = isManualSingle ? "Select Source File" : "Select Source Folder";
+        sourceChooser = std::make_unique<juce::FileChooser> (
+            chooserTitle,
             juce::File(),
             "*");
-        constexpr int flags = juce::FileBrowserComponent::openMode
-                              | juce::FileBrowserComponent::canSelectDirectories;
-        sourceDirectoryChooser->launchAsync (flags, [this] (const juce::FileChooser& chooser)
+        const int flags = juce::FileBrowserComponent::openMode
+                          | (isManualSingle ? juce::FileBrowserComponent::canSelectFiles
+                                            : juce::FileBrowserComponent::canSelectDirectories);
+        sourceChooser->launchAsync (flags, [this, isManualSingle] (const juce::FileChooser& chooser)
         {
-            const auto selectedDirectory = chooser.getResult();
-            if (selectedDirectory.exists())
-            {
-                stateStore.setSourceDirectory (selectedDirectory);
-                updateSourcePathLabel (selectedDirectory);
-            }
+            const auto selectedItem = chooser.getResult();
+            if (! selectedItem.exists())
+                return;
+
+            if (isManualSingle)
+                stateStore.setSourceFile (selectedItem);
+            else
+                stateStore.setSourceDirectory (selectedItem);
+
+            updateSourcePathLabel (stateStore.getSnapshot());
         });
     };
 
@@ -403,7 +410,7 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
     addAndMakeVisible (*actionBar);
     addAndMakeVisible (*statusArea);
 
-    updateSourcePathLabel (stateStore.getSnapshot().sourceDirectory);
+    updateSourcePathLabel (stateStore.getSnapshot());
     updateLiveModeState();
 }
 
@@ -484,9 +491,15 @@ void MainTabView::configureSegmentButton (juce::TextButton& button, int groupId)
     button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
 }
 
-void MainTabView::updateSourcePathLabel (const juce::File& directory)
+void MainTabView::updateSourcePathLabel (const SliceStateStore::SliceStateSnapshot& snapshot)
 {
-    const auto pathText = directory.exists() ? directory.getFullPathName() : "No source selected";
+    juce::String pathText = "No source selected";
+
+    if (snapshot.sourceFile.existsAsFile())
+        pathText = snapshot.sourceFile.getFullPathName();
+    else if (snapshot.sourceDirectory.isDirectory())
+        pathText = snapshot.sourceDirectory.getFullPathName();
+
     sourcePathLabel.setText (pathText, juce::dontSendNotification);
 }
 

@@ -38,7 +38,7 @@ private:
     };
 
     void configureSegmentButton (juce::TextButton& button, int groupId);
-    void updateSourcePathLabel (const juce::File& directory);
+    void updateSourcePathLabel (const SliceStateStore::SliceStateSnapshot& snapshot);
     void updateLiveModeState();
 
     StyleLookAndFeel styleLookAndFeel;
@@ -69,7 +69,7 @@ private:
     std::unique_ptr<juce::Component> previewGrid;
     std::unique_ptr<juce::Component> actionBar;
     std::unique_ptr<juce::Component> statusArea;
-    std::unique_ptr<juce::FileChooser> sourceDirectoryChooser;
+    std::unique_ptr<juce::FileChooser> sourceChooser;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainTabView)
 };

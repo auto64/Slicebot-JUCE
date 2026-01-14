@@ -4,6 +4,7 @@ SliceStateStore::SliceStateSnapshot SliceStateStore::getSnapshot() const
 {
     const juce::ScopedLock lock (stateLock);
     return SliceStateSnapshot { sourceDirectory,
+                                sourceFile,
                                 sliceInfos,
                                 previewSnippetURLs,
                                 sliceVolumeSettings,
@@ -58,6 +59,14 @@ void SliceStateStore::setSourceDirectory (juce::File newSourceDirectory)
 {
     const juce::ScopedLock lock (stateLock);
     sourceDirectory = std::move (newSourceDirectory);
+    sourceFile = juce::File();
+}
+
+void SliceStateStore::setSourceFile (juce::File newSourceFile)
+{
+    const juce::ScopedLock lock (stateLock);
+    sourceFile = std::move (newSourceFile);
+    sourceDirectory = juce::File();
 }
 
 void SliceStateStore::setLayeringState (bool newLayeringMode, int newSampleCount)

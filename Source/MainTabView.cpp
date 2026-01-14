@@ -1,4 +1,5 @@
 #include "MainTabView.h"
+#include "AudioCacheStore.h"
 
 namespace
 {
@@ -167,6 +168,7 @@ namespace
             configureButton (jumbleAllButton, "JUMBLE ALL");
             configureButton (resliceAllButton, "RESLICE ALL");
             configureButton (exportButton, "EXPORT");
+            configureButton (recacheButton, "RECACHE");
             configureButton (lockButton, "🔒");
             configureButton (loopButton, "LOOP");
 
@@ -175,11 +177,17 @@ namespace
             buttons.add (&jumbleAllButton);
             buttons.add (&resliceAllButton);
             buttons.add (&exportButton);
+            buttons.add (&recacheButton);
             buttons.add (&lockButton);
             buttons.add (&loopButton);
 
             for (auto* button : buttons)
                 addAndMakeVisible (button);
+        }
+
+        void setRecacheHandler (std::function<void()> handler)
+        {
+            recacheButton.onClick = std::move (handler);
         }
 
         void resized() override
@@ -210,6 +218,7 @@ namespace
         juce::TextButton jumbleAllButton;
         juce::TextButton resliceAllButton;
         juce::TextButton exportButton;
+        juce::TextButton recacheButton;
         juce::TextButton lockButton;
         juce::TextButton loopButton;
         juce::Array<juce::TextButton*> buttons;
@@ -224,6 +233,11 @@ namespace
             statusLabel.setJustificationType (juce::Justification::centred);
             statusLabel.setColour (juce::Label::textColourId, textGrey());
             addAndMakeVisible (statusLabel);
+        }
+
+        void setStatusText (const juce::String& text)
+        {
+            statusLabel.setText (text, juce::dontSendNotification);
         }
 
         void setProgress (float progress)
@@ -357,6 +371,13 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
             else
                 stateStore.setSourceDirectory (selectedItem);
 
+            updateStatusText ("Caching source...");
+            updateProgress (0.0f);
+            const auto cacheData = AudioCacheStore::buildFromSource (selectedItem, ! isManualSingle);
+            AudioCacheStore::save (cacheData);
+            stateStore.setCacheData (cacheData);
+            updateStatusText ("Cache updated.");
+            updateProgress (1.0f);
             updateSourcePathLabel (stateStore.getSnapshot());
         });
     };
@@ -409,6 +430,38 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
     addAndMakeVisible (*previewGrid);
     addAndMakeVisible (*actionBar);
     addAndMakeVisible (*statusArea);
+
+    if (auto* bar = dynamic_cast<ActionBar*> (actionBar.get()))
+    {
+        bar->setRecacheHandler ([this]()
+        {
+            const auto snapshot = stateStore.getSnapshot();
+            const bool hasFile = snapshot.sourceFile.existsAsFile();
+            const bool hasDir = snapshot.sourceDirectory.isDirectory();
+            if (! hasFile && ! hasDir)
+            {
+                updateStatusText ("No source selected.");
+                return;
+            }
+
+            const auto source = hasFile ? snapshot.sourceFile : snapshot.sourceDirectory;
+            updateStatusText ("Recaching...");
+            updateProgress (0.0f);
+
+            const auto cacheData = AudioCacheStore::buildFromSource (
+                source,
+                ! hasFile,
+                [this] (int current, int total)
+                {
+                    if (total > 0)
+                        updateProgress (static_cast<float> (current) / static_cast<float> (total));
+                });
+            AudioCacheStore::save (cacheData);
+            stateStore.setCacheData (cacheData);
+            updateStatusText ("Recache complete.");
+            updateProgress (1.0f);
+        });
+    }
 
     updateSourcePathLabel (stateStore.getSnapshot());
     updateLiveModeState();
@@ -501,6 +554,18 @@ void MainTabView::updateSourcePathLabel (const SliceStateStore::SliceStateSnapsh
         pathText = snapshot.sourceDirectory.getFullPathName();
 
     sourcePathLabel.setText (pathText, juce::dontSendNotification);
+}
+
+void MainTabView::updateStatusText (const juce::String& text)
+{
+    if (auto* status = dynamic_cast<StatusArea*> (statusArea.get()))
+        status->setStatusText (text);
+}
+
+void MainTabView::updateProgress (float progress)
+{
+    if (auto* status = dynamic_cast<StatusArea*> (statusArea.get()))
+        status->setProgress (progress);
 }
 
 void MainTabView::updateLiveModeState()

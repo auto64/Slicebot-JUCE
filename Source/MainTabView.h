@@ -39,6 +39,8 @@ private:
 
     void configureSegmentButton (juce::TextButton& button, int groupId);
     void updateSourcePathLabel (const SliceStateStore::SliceStateSnapshot& snapshot);
+    void updateStatusText (const juce::String& text);
+    void updateProgress (float progress);
     void updateLiveModeState();
 
     StyleLookAndFeel styleLookAndFeel;

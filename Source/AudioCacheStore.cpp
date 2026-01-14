@@ -3,6 +3,20 @@
 
 namespace
 {
+    AudioCacheStore::CacheEntry makeEntry (const juce::File& file,
+                                           const juce::AudioFormatReader& reader)
+    {
+        AudioCacheStore::CacheEntry entry;
+        entry.path = file.getFullPathName();
+        entry.sampleRate = reader.sampleRate;
+        entry.numChannels = static_cast<int> (reader.numChannels);
+
+        if (reader.sampleRate > 0.0)
+            entry.durationSeconds = static_cast<double> (reader.lengthInSamples) / reader.sampleRate;
+
+        return entry;
+    }
+
     juce::File getAppSupportDirectory()
     {
         auto* propertiesFile = AppProperties::get().properties().getUserSettings();
@@ -10,6 +24,15 @@ namespace
             return juce::File();
 
         return propertiesFile->getFile().getParentDirectory();
+    }
+
+    juce::File getAppSupportFolder()
+    {
+        auto baseDir = getAppSupportDirectory();
+        if (baseDir == juce::File())
+            return juce::File();
+
+        return baseDir.getChildFile ("SliceBotJUCE");
     }
 
     juce::var entryToVar (const AudioCacheStore::CacheEntry& entry)
@@ -41,11 +64,62 @@ namespace
 
 juce::File AudioCacheStore::getCacheFile()
 {
-    const auto appSupportDir = getAppSupportDirectory();
+    const auto appSupportDir = getAppSupportFolder();
     if (appSupportDir == juce::File())
         return juce::File();
 
     return appSupportDir.getChildFile ("AudioCache.json");
+}
+
+AudioCacheStore::CacheData AudioCacheStore::buildFromSource (const juce::File& source,
+                                                             bool isDirectory,
+                                                             std::function<void (int current, int total)> progressCallback)
+{
+    CacheData data;
+    data.sourcePath = source.getFullPathName();
+    data.isDirectorySource = isDirectory;
+
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+
+    if (isDirectory && source.isDirectory())
+    {
+        juce::Array<juce::File> files;
+        source.findChildFiles (files, juce::File::findFiles, true);
+
+        int current = 0;
+        const int total = files.size();
+        for (const auto& file : files)
+        {
+            ++current;
+            std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (file));
+            if (reader == nullptr)
+            {
+                if (progressCallback)
+                    progressCallback (current, total);
+                continue;
+            }
+
+            data.entries.add (makeEntry (file, *reader));
+
+            if (progressCallback)
+                progressCallback (current, total);
+        }
+    }
+    else if (source.existsAsFile())
+    {
+        if (progressCallback)
+            progressCallback (0, 1);
+
+        std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (source));
+        if (reader != nullptr)
+            data.entries.add (makeEntry (source, *reader));
+
+        if (progressCallback)
+            progressCallback (1, 1);
+    }
+
+    return data;
 }
 
 AudioCacheStore::CacheData AudioCacheStore::load()

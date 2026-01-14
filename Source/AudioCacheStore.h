@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <functional>
 
 class AudioCacheStore
 {
@@ -21,6 +22,9 @@ public:
     };
 
     static juce::File getCacheFile();
+    static CacheData buildFromSource (const juce::File& source,
+                                      bool isDirectory,
+                                      std::function<void (int current, int total)> progressCallback = {});
     static CacheData load();
     static bool save (const CacheData& data);
 };

@@ -14,6 +14,7 @@ public:
 
     bool requestResliceSingle (int index);
     bool requestResliceAll();
+    bool requestSliceAll();
     bool requestRegenerateSingle (int index);
     bool requestRegenerateAll();
     bool requestStutterSingle (int index);

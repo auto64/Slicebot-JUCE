@@ -2,16 +2,43 @@
 #include "MainTabView.h"
 #include "GlobalTabView.h"
 #include "AudioCacheStore.h"
+#include "MutationOrchestrator.h"
 #include <cmath>
 
 namespace
 {
-    class FocusPreviewArea final : public juce::Component
+    class FocusPreviewArea final : public juce::Component,
+                                   private juce::ChangeListener
     {
     public:
+        FocusPreviewArea()
+            : thumbnail (512, formatManager, thumbnailCache)
+        {
+            formatManager.registerBasicFormats();
+            thumbnail.addChangeListener (this);
+        }
+
+        ~FocusPreviewArea() override
+        {
+            thumbnail.removeChangeListener (this);
+        }
+
         void paint (juce::Graphics& g) override
         {
             g.fillAll (juce::Colours::darkgrey);
+
+            if (thumbnail.getTotalLength() > 0.0)
+            {
+                g.setColour (juce::Colours::lightgrey);
+                thumbnail.drawChannels (g, getLocalBounds().reduced (6), 0.0, thumbnail.getTotalLength(), 1.0f);
+                return;
+            }
+
+            g.setColour (juce::Colours::grey);
+            g.drawFittedText ("NO SLICE SELECTED",
+                              getLocalBounds().reduced (6),
+                              juce::Justification::centred,
+                              1);
         }
 
         void mouseUp (const juce::MouseEvent&) override
@@ -25,7 +52,30 @@ namespace
             onClick = std::move (handler);
         }
 
+        void setSourceFile (const juce::File& file)
+        {
+            if (file == currentFile)
+                return;
+
+            currentFile = file;
+            thumbnail.clear();
+
+            if (currentFile.existsAsFile())
+                thumbnail.setSource (new juce::FileInputSource (currentFile));
+
+            repaint();
+        }
+
     private:
+        void changeListenerCallback (juce::ChangeBroadcaster*) override
+        {
+            repaint();
+        }
+
+        juce::AudioFormatManager formatManager;
+        juce::AudioThumbnailCache thumbnailCache { 8 };
+        juce::AudioThumbnail thumbnail;
+        juce::File currentFile;
         std::function<void()> onClick;
     };
 
@@ -155,6 +205,11 @@ namespace
         void setRecacheHandler (std::function<void()> handler)
         {
             recacheButton.onClick = std::move (handler);
+        }
+
+        void setSliceAllHandler (std::function<void()> handler)
+        {
+            sliceAllButton.onClick = std::move (handler);
         }
 
         void setLoopHandler (std::function<void(bool)> handler)
@@ -364,6 +419,26 @@ namespace
                     previewPlayer.stopPlayback();
                     setStatusText ("Preview loop stopped.");
                 });
+                bar->setSliceAllHandler ([this]()
+                {
+                    MutationOrchestrator orchestrator (stateStore);
+                    setStatusText ("Slicing...");
+
+                    if (! orchestrator.requestSliceAll())
+                    {
+                        setStatusText ("Slice all failed.");
+                        return;
+                    }
+
+                    const auto snapshot = stateStore.getSnapshot();
+                    if (! snapshot.previewSnippetURLs.empty())
+                    {
+                        focusedSliceIndex = 0;
+                        focusPlaceholder.setSourceFile (snapshot.previewSnippetURLs.front());
+                    }
+
+                    setStatusText ("Slice all complete.");
+                });
                 bar->setRecacheHandler ([this]()
                 {
                     const auto snapshot = stateStore.getSnapshot();
@@ -402,6 +477,9 @@ namespace
             grid.setCellClickHandler ([this] (int index)
             {
                 focusedSliceIndex = index;
+                const auto snapshot = stateStore.getSnapshot();
+                if (index >= 0 && index < static_cast<int> (snapshot.previewSnippetURLs.size()))
+                    focusPlaceholder.setSourceFile (snapshot.previewSnippetURLs[static_cast<std::size_t> (index)]);
                 playSliceAtIndex (index);
             });
         }

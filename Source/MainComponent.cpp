@@ -2,6 +2,7 @@
 #include "MainTabView.h"
 #include "GlobalTabView.h"
 #include "AudioCacheStore.h"
+#include <cmath>
 
 namespace
 {
@@ -71,20 +72,236 @@ namespace
         juce::OwnedArray<GridCell> cells;
     };
 
+    class ActionBar final : public juce::Component
+    {
+    public:
+        ActionBar()
+        {
+            configureButton (sliceAllButton, "SLICE ALL");
+            configureButton (modAllButton, "MOD ALL");
+            configureButton (jumbleAllButton, "JUMBLE ALL");
+            configureButton (resliceAllButton, "RESLICE ALL");
+            configureButton (exportButton, "EXPORT");
+            configureButton (recacheButton, "RECACHE");
+            configureButton (lockButton, "🔒");
+            configureButton (loopButton, "LOOP");
+
+            buttons.add (&sliceAllButton);
+            buttons.add (&modAllButton);
+            buttons.add (&jumbleAllButton);
+            buttons.add (&resliceAllButton);
+            buttons.add (&exportButton);
+            buttons.add (&recacheButton);
+            buttons.add (&lockButton);
+            buttons.add (&loopButton);
+
+            for (auto* button : buttons)
+            {
+                button->setLookAndFeel (&compactLookAndFeel);
+                addAndMakeVisible (button);
+            }
+        }
+
+        ~ActionBar() override
+        {
+            for (auto* button : buttons)
+                button->setLookAndFeel (nullptr);
+        }
+
+        void setRecacheHandler (std::function<void()> handler)
+        {
+            recacheButton.onClick = std::move (handler);
+        }
+
+        void resized() override
+        {
+            auto bounds = getLocalBounds();
+            const int spacing = 5;
+            layoutButtons (bounds, spacing);
+        }
+
+    private:
+        class CompactLookAndFeel final : public juce::LookAndFeel_V4
+        {
+        public:
+            juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override
+            {
+                return juce::Font ("Helvetica", juce::jmin (11.0f, buttonHeight * 0.5f), juce::Font::plain);
+            }
+
+            void drawButtonBackground (juce::Graphics& g,
+                                       juce::Button& button,
+                                       const juce::Colour&,
+                                       bool,
+                                       bool) override
+            {
+                const auto bounds = button.getLocalBounds().toFloat();
+                const auto baseColour = button.findColour (button.getToggleState()
+                                                               ? juce::TextButton::buttonOnColourId
+                                                               : juce::TextButton::buttonColourId);
+                g.setColour (baseColour);
+                g.fillRect (bounds);
+                g.setColour (juce::Colour (0xff333333));
+                g.drawRect (bounds, 1.0f);
+            }
+
+            void drawButtonText (juce::Graphics& g,
+                                 juce::TextButton& button,
+                                 bool,
+                                 bool) override
+            {
+                g.setFont (getTextButtonFont (button, button.getHeight()));
+                g.setColour (button.findColour (button.getToggleState()
+                                                    ? juce::TextButton::textColourOnId
+                                                    : juce::TextButton::textColourOffId));
+                const auto textBounds = button.getLocalBounds().reduced (2, 1);
+                g.drawFittedText (button.getButtonText(),
+                                  textBounds,
+                                  juce::Justification::centred,
+                                  1);
+            }
+        };
+
+        void layoutButtons (juce::Rectangle<int> bounds, int spacing)
+        {
+            const int buttonCount = buttons.size();
+            if (buttonCount == 0)
+                return;
+
+            const int availableWidth = bounds.getWidth() - spacing * (buttonCount - 1);
+            int totalBestWidth = 0;
+            for (auto* button : buttons)
+                totalBestWidth += button->getBestWidthForHeight (bounds.getHeight());
+
+            const float scale = totalBestWidth > 0
+                                    ? juce::jmin (1.0f, static_cast<float> (availableWidth) / static_cast<float> (totalBestWidth))
+                                    : 1.0f;
+
+            for (int index = 0; index < buttonCount; ++index)
+            {
+                auto* button = buttons[index];
+                const int bestWidth = button->getBestWidthForHeight (bounds.getHeight());
+                int width = static_cast<int> (std::floor (bestWidth * scale));
+                if (index == buttonCount - 1)
+                    width = bounds.getWidth();
+                button->setBounds (bounds.removeFromLeft (width));
+                if (index < buttonCount - 1)
+                    bounds.removeFromLeft (spacing);
+            }
+        }
+
+        void configureButton (juce::TextButton& button, const juce::String& text)
+        {
+            button.setButtonText (text);
+            button.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff5a5a5a));
+            button.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff4fa3f7));
+            button.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffcfcfcf));
+            button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+        }
+
+        CompactLookAndFeel compactLookAndFeel;
+        juce::TextButton sliceAllButton;
+        juce::TextButton modAllButton;
+        juce::TextButton jumbleAllButton;
+        juce::TextButton resliceAllButton;
+        juce::TextButton exportButton;
+        juce::TextButton recacheButton;
+        juce::TextButton lockButton;
+        juce::TextButton loopButton;
+        juce::Array<juce::TextButton*> buttons;
+    };
+
+    class StatusArea final : public juce::Component
+    {
+    public:
+        StatusArea()
+        {
+            statusLabel.setText ("PREVIEW GENERATED.", juce::dontSendNotification);
+            statusLabel.setJustificationType (juce::Justification::centred);
+            statusLabel.setColour (juce::Label::textColourId, juce::Colour (0xffcfcfcf));
+            addAndMakeVisible (statusLabel);
+        }
+
+        void setStatusText (const juce::String& text)
+        {
+            statusLabel.setText (text, juce::dontSendNotification);
+        }
+
+        void setProgress (float progress)
+        {
+            progressValue = juce::jlimit (0.0f, 1.0f, progress);
+            repaint();
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (juce::Colour (0xff444444));
+            g.setColour (juce::Colour (0xffd9534f));
+            const float width = static_cast<float> (getWidth());
+            const float progressWidth = width * progressValue;
+            g.drawLine (0.0f, 0.0f, progressWidth, 0.0f, 1.0f);
+        }
+
+        void resized() override
+        {
+            statusLabel.setBounds (0, 4, getWidth(), getHeight() - 4);
+        }
+
+    private:
+        juce::Label statusLabel;
+        float progressValue = 0.0f;
+    };
+
     class PersistentFrame final : public juce::Component,
                                   private juce::ChangeListener
     {
     public:
-        explicit PersistentFrame (juce::TabbedComponent& tabsToTrack)
-            : tabs (tabsToTrack)
+        PersistentFrame (juce::TabbedComponent& tabsToTrack, SliceStateStore& stateStoreToUse)
+            : tabs (tabsToTrack),
+              stateStore (stateStoreToUse)
         {
             addAndMakeVisible (focusPlaceholder);
             addAndMakeVisible (grid);
-            addAndMakeVisible (bottomPlaceholder);
+            actionBar = std::make_unique<ActionBar>();
+            statusArea = std::make_unique<StatusArea>();
+            addAndMakeVisible (*actionBar);
+            addAndMakeVisible (*statusArea);
             tabs.getTabbedButtonBar().addChangeListener (this);
 
             // Settings bypass path: hide frame while Settings tab is active.
             setVisible (tabs.getCurrentTabName() != "SETTINGS");
+
+            if (auto* bar = dynamic_cast<ActionBar*> (actionBar.get()))
+            {
+                bar->setRecacheHandler ([this]()
+                {
+                    const auto snapshot = stateStore.getSnapshot();
+                    const bool hasFile = snapshot.sourceFile.existsAsFile();
+                    const bool hasDir = snapshot.sourceDirectory.isDirectory();
+                    if (! hasFile && ! hasDir)
+                    {
+                        setStatusText ("No source selected.");
+                        return;
+                    }
+
+                    const auto source = hasFile ? snapshot.sourceFile : snapshot.sourceDirectory;
+                    setStatusText ("Recaching...");
+                    setProgress (0.0f);
+
+                    const auto cacheData = AudioCacheStore::buildFromSource (
+                        source,
+                        ! hasFile,
+                        [this] (int current, int total)
+                        {
+                            if (total > 0)
+                                setProgress (static_cast<float> (current) / static_cast<float> (total));
+                        });
+                    AudioCacheStore::save (cacheData);
+                    stateStore.setCacheData (cacheData);
+                    setStatusText ("Recache complete.");
+                    setProgress (1.0f);
+                });
+            }
         }
 
         ~PersistentFrame() override
@@ -104,14 +321,31 @@ namespace
             const int gridW = 609;
             const int gridH = 4 * 64 + 3 * 3;
             const int spacing = 6;
-            const int bottomH = 25;
+            const int actionBarH = 28;
+            const int statusH = 24;
 
             int y = 0;
             focusPlaceholder.setBounds (0, y, focusW, focusH);
             y += focusH + spacing;
             grid.setBounds (0, y, gridW, gridH);
             y += gridH + spacing;
-            bottomPlaceholder.setBounds (0, y, gridW, bottomH);
+            if (actionBar != nullptr)
+                actionBar->setBounds (0, y, gridW, actionBarH);
+            y += actionBarH + 8;
+            if (statusArea != nullptr)
+                statusArea->setBounds (0, y, gridW, statusH);
+        }
+
+        void setStatusText (const juce::String& text)
+        {
+            if (auto* status = dynamic_cast<StatusArea*> (statusArea.get()))
+                status->setStatusText (text);
+        }
+
+        void setProgress (float progress)
+        {
+            if (auto* status = dynamic_cast<StatusArea*> (statusArea.get()))
+                status->setProgress (progress);
         }
 
     private:
@@ -122,17 +356,22 @@ namespace
         }
 
         juce::TabbedComponent& tabs;
+        SliceStateStore& stateStore;
         GreyPlaceholder focusPlaceholder;
         PreviewGrid grid;
-        GreyPlaceholder bottomPlaceholder;
+        std::unique_ptr<juce::Component> actionBar;
+        std::unique_ptr<juce::Component> statusArea;
     };
 
     class TabHeaderContainer final : public juce::Component,
                                      private juce::ChangeListener
     {
     public:
-        TabHeaderContainer (juce::TabbedComponent& tabsToTrack, SliceStateStore& stateStoreToUse)
+        TabHeaderContainer (juce::TabbedComponent& tabsToTrack,
+                            SliceStateStore& stateStoreToUse,
+                            MainTabView& mainTabViewToUse)
             : tabs (tabsToTrack),
+              mainHeader (mainTabViewToUse),
               globalHeader (stateStoreToUse),
               stateStore (stateStoreToUse)
         {
@@ -200,8 +439,8 @@ namespace
         }
 
         juce::TabbedComponent& tabs;
+        MainTabView& mainHeader;
         SliceStateStore& stateStore;
-        GreyPlaceholder mainHeader;
         GlobalTabView globalHeader;
         GreyPlaceholder localHeader;
         juce::Component liveHeader;
@@ -217,15 +456,23 @@ namespace
                      juce::Component* liveContent)
             : tabs (tabsToTrack),
               settingsView (settingsToUse),
-              persistentFrame (tabsToTrack),
-              headerContainer (tabsToTrack, stateStoreToUse),
-              mainTabView (stateStoreToUse)
+              persistentFrame (tabsToTrack, stateStoreToUse),
+              mainTabView (stateStoreToUse),
+              headerContainer (tabsToTrack, stateStoreToUse, mainTabView)
         {
             headerContainer.setLiveContent (liveContent);
             addAndMakeVisible (headerContainer);
             addAndMakeVisible (persistentFrame);
             addAndMakeVisible (settingsView);
-            addAndMakeVisible (mainTabView);
+
+            mainTabView.setStatusTextCallback ([this] (const juce::String& text)
+            {
+                persistentFrame.setStatusText (text);
+            });
+            mainTabView.setProgressCallback ([this] (float progress)
+            {
+                persistentFrame.setProgress (progress);
+            });
 
             tabs.getTabbedButtonBar().addChangeListener (this);
             updateVisibleContent();
@@ -248,8 +495,9 @@ namespace
             const int focusH = 96;
             const int gridH = 4 * 64 + 3 * 3;
             const int spacing = 6;
-            const int bottomH = 25;
-            const int frameH = focusH + spacing + gridH + spacing + bottomH;
+            const int actionBarH = 28;
+            const int statusH = 24;
+            const int frameH = focusH + spacing + gridH + spacing + actionBarH + 8 + statusH;
 
             const int headerTopPadding = 16;
             const int headerBottomPadding = -10;
@@ -269,7 +517,6 @@ namespace
             );
 
             settingsView.setBounds (getLocalBounds());
-            mainTabView.setBounds (getLocalBounds());
         }
 
     private:
@@ -282,19 +529,16 @@ namespace
         {
             const auto currentTab = tabs.getCurrentTabName();
             const bool isSettings = currentTab == "SETTINGS";
-            const bool isMain = currentTab == "MAIN";
-
             settingsView.setVisible (isSettings);
-            mainTabView.setVisible (isMain);
-            headerContainer.setVisible (! isSettings && ! isMain);
-            persistentFrame.setVisible (! isSettings && ! isMain);
+            headerContainer.setVisible (! isSettings);
+            persistentFrame.setVisible (! isSettings);
         }
 
         juce::TabbedComponent& tabs;
         SettingsView& settingsView;
         PersistentFrame persistentFrame;
-        TabHeaderContainer headerContainer;
         MainTabView mainTabView;
+        TabHeaderContainer headerContainer;
     };
 }
 

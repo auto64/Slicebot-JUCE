@@ -12,10 +12,12 @@ public:
     void resized() override;
     void paint (juce::Graphics& g) override;
 
+    void setStatusTextCallback (std::function<void(const juce::String&)> callback);
+    void setProgressCallback (std::function<void(float)> callback);
     void setProgress (float progress);
 
 private:
-    static constexpr float kFontSize = 13.0f;
+    static constexpr float kFontSize = 11.0f;
 
     class StyleLookAndFeel final : public juce::LookAndFeel_V4
     {
@@ -40,7 +42,6 @@ private:
     void configureSegmentButton (juce::TextButton& button, int groupId);
     void applySettingsSnapshot (const SliceStateStore::SliceStateSnapshot& snapshot);
     void updateSliceSettingsFromUi();
-    void updateSourcePathLabel (const SliceStateStore::SliceStateSnapshot& snapshot);
     void updateStatusText (const juce::String& text);
     void updateProgress (float progress);
     void updateLiveModeState();
@@ -54,7 +55,6 @@ private:
     juce::TextButton modeLive { "LIVE" };
 
     juce::TextButton sourceButton { "SOURCE" };
-    juce::Label sourcePathLabel { "sourcePathLabel", "No source selected" };
     juce::Label subdivLabel { "subdivLabel", "SUBDIV" };
     juce::TextButton subdivHalfBar { "1/2 BAR" };
     juce::TextButton subdivQuarterBar { "1/4 BAR" };
@@ -74,6 +74,8 @@ private:
     std::unique_ptr<juce::Component> actionBar;
     std::unique_ptr<juce::Component> statusArea;
     std::unique_ptr<juce::FileChooser> sourceChooser;
+    std::function<void(const juce::String&)> statusTextCallback;
+    std::function<void(float)> progressCallback;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainTabView)
 };

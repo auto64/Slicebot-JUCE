@@ -1,5 +1,6 @@
 #include "MainTabView.h"
 #include "AudioCacheStore.h"
+#include <cmath>
 
 namespace
 {
@@ -182,7 +183,16 @@ namespace
             buttons.add (&loopButton);
 
             for (auto* button : buttons)
+            {
+                button->setLookAndFeel (&compactLookAndFeel);
                 addAndMakeVisible (button);
+            }
+        }
+
+        ~ActionBar() override
+        {
+            for (auto* button : buttons)
+                button->setLookAndFeel (nullptr);
         }
 
         void setRecacheHandler (std::function<void()> handler)
@@ -193,17 +203,80 @@ namespace
         void resized() override
         {
             auto bounds = getLocalBounds();
-            const int spacing = 6;
-
-            for (auto* button : buttons)
-            {
-                const int width = button->getBestWidthForHeight (bounds.getHeight());
-                button->setBounds (bounds.removeFromLeft (width));
-                bounds.removeFromLeft (spacing);
-            }
+            const int spacing = 5;
+            layoutButtons (bounds, spacing);
         }
 
     private:
+        class CompactLookAndFeel final : public juce::LookAndFeel_V4
+        {
+        public:
+            juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override
+            {
+                return juce::Font ("Helvetica", juce::jmin (11.0f, buttonHeight * 0.5f), juce::Font::plain);
+            }
+
+            void drawButtonBackground (juce::Graphics& g,
+                                       juce::Button& button,
+                                       const juce::Colour&,
+                                       bool,
+                                       bool) override
+            {
+                const auto bounds = button.getLocalBounds().toFloat();
+                const auto baseColour = button.findColour (button.getToggleState()
+                                                               ? juce::TextButton::buttonOnColourId
+                                                               : juce::TextButton::buttonColourId);
+                g.setColour (baseColour);
+                g.fillRect (bounds);
+                g.setColour (borderGrey());
+                g.drawRect (bounds, 1.0f);
+            }
+
+            void drawButtonText (juce::Graphics& g,
+                                 juce::TextButton& button,
+                                 bool,
+                                 bool) override
+            {
+                g.setFont (getTextButtonFont (button, button.getHeight()));
+                g.setColour (button.findColour (button.getToggleState()
+                                                    ? juce::TextButton::textColourOnId
+                                                    : juce::TextButton::textColourOffId));
+                const auto textBounds = button.getLocalBounds().reduced (2, 1);
+                g.drawFittedText (button.getButtonText(),
+                                  textBounds,
+                                  juce::Justification::centred,
+                                  1);
+            }
+        };
+
+        void layoutButtons (juce::Rectangle<int> bounds, int spacing)
+        {
+            const int buttonCount = buttons.size();
+            if (buttonCount == 0)
+                return;
+
+            const int availableWidth = bounds.getWidth() - spacing * (buttonCount - 1);
+            int totalBestWidth = 0;
+            for (auto* button : buttons)
+                totalBestWidth += button->getBestWidthForHeight (bounds.getHeight());
+
+            const float scale = totalBestWidth > 0
+                                    ? juce::jmin (1.0f, static_cast<float> (availableWidth) / static_cast<float> (totalBestWidth))
+                                    : 1.0f;
+
+            for (int index = 0; index < buttonCount; ++index)
+            {
+                auto* button = buttons[index];
+                const int bestWidth = button->getBestWidthForHeight (bounds.getHeight());
+                int width = static_cast<int> (std::floor (bestWidth * scale));
+                if (index == buttonCount - 1)
+                    width = bounds.getWidth();
+                button->setBounds (bounds.removeFromLeft (width));
+                if (index < buttonCount - 1)
+                    bounds.removeFromLeft (spacing);
+            }
+        }
+
         void configureButton (juce::TextButton& button, const juce::String& text)
         {
             button.setButtonText (text);
@@ -213,6 +286,7 @@ namespace
             button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
         }
 
+        CompactLookAndFeel compactLookAndFeel;
         juce::TextButton sliceAllButton;
         juce::TextButton modAllButton;
         juce::TextButton jumbleAllButton;
@@ -384,7 +458,6 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
             stateStore.setCacheData (cacheData);
             updateStatusText ("Cache updated.");
             updateProgress (1.0f);
-            updateSourcePathLabel (stateStore.getSnapshot());
         });
     };
 
@@ -411,7 +484,6 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
     addAndMakeVisible (modeLive);
 
     addAndMakeVisible (sourceButton);
-    addAndMakeVisible (sourcePathLabel);
     addAndMakeVisible (subdivLabel);
     addAndMakeVisible (subdivHalfBar);
     addAndMakeVisible (subdivQuarterBar);
@@ -427,9 +499,6 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
     addAndMakeVisible (samplesFour);
     addAndMakeVisible (samplesEight);
     addAndMakeVisible (samplesSixteen);
-
-    sourcePathLabel.setColour (juce::Label::textColourId, textGrey());
-    sourcePathLabel.setJustificationType (juce::Justification::centredLeft);
 
     focusView = std::make_unique<FocusWaveformView>();
     previewGrid = std::make_unique<PreviewGrid>();
@@ -474,7 +543,6 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
     }
 
     applySettingsSnapshot (stateStore.getSnapshot());
-    updateSourcePathLabel (stateStore.getSnapshot());
     updateLiveModeState();
 }
 
@@ -496,39 +564,49 @@ void MainTabView::resized()
     int y = 12;
 
     auto rowBounds = juce::Rectangle<int> (x, y, contentWidth, kRowHeight);
-    const int modeSegmentWidth = rowBounds.getWidth() / 4;
-    modeMultiFile.setBounds (rowBounds.removeFromLeft (modeSegmentWidth));
-    modeSingleRandom.setBounds (rowBounds.removeFromLeft (modeSegmentWidth));
-    modeSingleManual.setBounds (rowBounds.removeFromLeft (modeSegmentWidth));
+    const int modeEdgeWidth = 120;
+    const int modeMiddleWidth = (rowBounds.getWidth() - modeEdgeWidth * 2) / 2;
+    modeMultiFile.setBounds (rowBounds.removeFromLeft (modeEdgeWidth));
+    modeSingleRandom.setBounds (rowBounds.removeFromLeft (modeMiddleWidth));
+    modeSingleManual.setBounds (rowBounds.removeFromLeft (modeMiddleWidth));
     modeLive.setBounds (rowBounds);
 
     y += kRowHeight + kRowSpacing;
-    if (sourceButton.isVisible())
-    {
-        rowBounds = juce::Rectangle<int> (x, y, contentWidth, kRowHeight);
-        sourceButton.setBounds (rowBounds.removeFromLeft (80));
-        rowBounds.removeFromLeft (8);
-        sourcePathLabel.setBounds (rowBounds);
-        y += kRowHeight + kRowSpacing;
-    }
-
     rowBounds = juce::Rectangle<int> (x, y, contentWidth, kRowHeight);
-    subdivLabel.setBounds (rowBounds.removeFromLeft (55));
-    subdivHalfBar.setBounds (rowBounds.removeFromLeft (90));
-    subdivQuarterBar.setBounds (rowBounds.removeFromLeft (90));
-    subdivEighthNote.setBounds (rowBounds.removeFromLeft (90));
-    subdivSixteenthNote.setBounds (rowBounds.removeFromLeft (90));
-    subdivRandom.setBounds (rowBounds.removeFromLeft (80));
+    subdivLabel.setBounds (rowBounds.removeFromLeft (65));
+    const int randomWidth = 70;
+    const int subdivSegmentWidth = (rowBounds.getWidth() - randomWidth) / 4;
+    subdivHalfBar.setBounds (rowBounds.removeFromLeft (subdivSegmentWidth));
+    subdivQuarterBar.setBounds (rowBounds.removeFromLeft (subdivSegmentWidth));
+    subdivEighthNote.setBounds (rowBounds.removeFromLeft (subdivSegmentWidth));
+    subdivSixteenthNote.setBounds (rowBounds.removeFromLeft (subdivSegmentWidth));
+    subdivRandom.setBounds (rowBounds.removeFromLeft (randomWidth));
 
     y += kRowHeight + kRowSpacing;
     rowBounds = juce::Rectangle<int> (x, y, contentWidth, kRowHeight);
-    bpmLabel.setBounds (rowBounds.removeFromLeft (45));
-    bpmValue.setBounds (rowBounds.removeFromLeft (70));
-    rowBounds.removeFromLeft (20);
-    samplesLabel.setBounds (rowBounds.removeFromLeft (70));
-    samplesFour.setBounds (rowBounds.removeFromLeft (120));
-    samplesEight.setBounds (rowBounds.removeFromLeft (120));
-    samplesSixteen.setBounds (rowBounds.removeFromLeft (120));
+    const int spacing = 10;
+    const int sourceWidth = 80;
+    const int bpmLabelWidth = 40;
+    const int bpmValueWidth = 50;
+    const int samplesLabelWidth = 80;
+    const int sampleSegmentWidth =
+        (rowBounds.getWidth()
+         - sourceWidth
+         - bpmLabelWidth
+         - bpmValueWidth
+         - samplesLabelWidth
+         - spacing * 4)
+        / 3;
+    sourceButton.setBounds (rowBounds.removeFromLeft (sourceWidth));
+    rowBounds.removeFromLeft (spacing);
+    bpmLabel.setBounds (rowBounds.removeFromLeft (bpmLabelWidth));
+    bpmValue.setBounds (rowBounds.removeFromLeft (bpmValueWidth));
+    rowBounds.removeFromLeft (spacing);
+    samplesLabel.setBounds (rowBounds.removeFromLeft (samplesLabelWidth));
+    rowBounds.removeFromLeft (spacing);
+    samplesFour.setBounds (rowBounds.removeFromLeft (sampleSegmentWidth));
+    samplesEight.setBounds (rowBounds.removeFromLeft (sampleSegmentWidth));
+    samplesSixteen.setBounds (rowBounds);
 
     y += kRowHeight + kSectionSpacing;
 
@@ -600,39 +678,42 @@ void MainTabView::updateSliceSettingsFromUi()
                                  snapshot.transientDetectionEnabled);
 }
 
-void MainTabView::updateSourcePathLabel (const SliceStateStore::SliceStateSnapshot& snapshot)
-{
-    juce::String pathText = "No source selected";
-
-    if (snapshot.sourceFile.existsAsFile())
-        pathText = snapshot.sourceFile.getFullPathName();
-    else if (snapshot.sourceDirectory.isDirectory())
-        pathText = snapshot.sourceDirectory.getFullPathName();
-
-    sourcePathLabel.setText (pathText, juce::dontSendNotification);
-}
-
 void MainTabView::updateStatusText (const juce::String& text)
 {
     if (auto* status = dynamic_cast<StatusArea*> (statusArea.get()))
         status->setStatusText (text);
+    if (statusTextCallback)
+        statusTextCallback (text);
 }
 
 void MainTabView::updateProgress (float progress)
 {
     if (auto* status = dynamic_cast<StatusArea*> (statusArea.get()))
         status->setProgress (progress);
+    if (progressCallback)
+        progressCallback (progress);
 }
 
 void MainTabView::updateLiveModeState()
 {
     const bool isLive = modeLive.getToggleState();
     sourceButton.setVisible (! isLive);
-    sourcePathLabel.setVisible (! isLive);
 }
 
 void MainTabView::setProgress (float progress)
 {
     if (auto* status = dynamic_cast<StatusArea*> (statusArea.get()))
         status->setProgress (progress);
+    if (progressCallback)
+        progressCallback (progress);
+}
+
+void MainTabView::setStatusTextCallback (std::function<void(const juce::String&)> callback)
+{
+    statusTextCallback = std::move (callback);
+}
+
+void MainTabView::setProgressCallback (std::function<void(float)> callback)
+{
+    progressCallback = std::move (callback);
 }

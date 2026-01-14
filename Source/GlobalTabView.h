@@ -8,7 +8,7 @@ class GlobalTabView final : public juce::Component
 {
 public:
     explicit GlobalTabView (SliceStateStore& stateStoreToUse);
-    ~GlobalTabView() override = default;
+    ~GlobalTabView() override;
 
     void resized() override;
     void paint (juce::Graphics& g) override;
@@ -16,6 +16,28 @@ public:
     void applySettingsSnapshot (const SliceStateStore::SliceStateSnapshot& snapshot);
 
 private:
+    static constexpr float kFontSize = 11.0f;
+
+    class StyleLookAndFeel final : public juce::LookAndFeel_V4
+    {
+    public:
+        explicit StyleLookAndFeel (float fontSizeToUse);
+        juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
+        juce::Font getLabelFont (juce::Label& label) override;
+        void drawButtonBackground (juce::Graphics& g,
+                                   juce::Button& button,
+                                   const juce::Colour& backgroundColour,
+                                   bool isMouseOverButton,
+                                   bool isButtonDown) override;
+        void drawToggleButton (juce::Graphics& g,
+                               juce::ToggleButton& button,
+                               bool isMouseOverButton,
+                               bool isButtonDown) override;
+
+    private:
+        float fontSize;
+    };
+
     void updateTransientSetting();
     void updateLayeringSetting();
     void updateMergeModeSetting (SliceStateStore::MergeMode newMode);
@@ -23,6 +45,7 @@ private:
     void selectMergeModeButton (SliceStateStore::MergeMode modeToSelect);
     void configureMergeButton (juce::TextButton& button, SliceStateStore::MergeMode mode);
 
+    StyleLookAndFeel styleLookAndFeel { kFontSize };
     SliceStateStore& stateStore;
     juce::ToggleButton transientToggle { "TRANSIENT DETECT" };
     juce::ToggleButton layeringToggle { "LAYERING" };

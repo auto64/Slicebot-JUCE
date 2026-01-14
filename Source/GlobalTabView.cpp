@@ -33,8 +33,10 @@ namespace
 }
 
 GlobalTabView::GlobalTabView (SliceStateStore& stateStoreToUse)
-    : stateStore (stateStoreToUse)
+    : styleLookAndFeel (kFontSize),
+      stateStore (stateStoreToUse)
 {
+    setLookAndFeel (&styleLookAndFeel);
     transientToggle.setColour (juce::ToggleButton::textColourId, textGrey());
     transientToggle.onClick = [this]() { updateTransientSetting(); };
     addAndMakeVisible (transientToggle);
@@ -61,6 +63,11 @@ GlobalTabView::GlobalTabView (SliceStateStore& stateStoreToUse)
     configureMergeButton (mergePachinko, SliceStateStore::MergeMode::pachinko);
 
     applySettingsSnapshot (stateStore.getSnapshot());
+}
+
+GlobalTabView::~GlobalTabView()
+{
+    setLookAndFeel (nullptr);
 }
 
 void GlobalTabView::paint (juce::Graphics& g)
@@ -173,4 +180,61 @@ void GlobalTabView::configureMergeButton (juce::TextButton& button, SliceStateSt
             updateMergeModeSetting (mode);
     };
     addAndMakeVisible (button);
+}
+
+GlobalTabView::StyleLookAndFeel::StyleLookAndFeel (float fontSizeToUse)
+    : fontSize (fontSizeToUse)
+{
+}
+
+juce::Font GlobalTabView::StyleLookAndFeel::getTextButtonFont (juce::TextButton&, int)
+{
+    return juce::Font ("Helvetica", fontSize, juce::Font::plain);
+}
+
+juce::Font GlobalTabView::StyleLookAndFeel::getLabelFont (juce::Label&)
+{
+    return juce::Font ("Helvetica", fontSize, juce::Font::plain);
+}
+
+void GlobalTabView::StyleLookAndFeel::drawButtonBackground (juce::Graphics& g,
+                                                            juce::Button& button,
+                                                            const juce::Colour&,
+                                                            bool,
+                                                            bool)
+{
+    const auto bounds = button.getLocalBounds().toFloat();
+    const auto baseColour = button.findColour (button.getToggleState()
+                                                   ? juce::TextButton::buttonOnColourId
+                                                   : juce::TextButton::buttonColourId);
+    g.setColour (baseColour);
+    g.fillRect (bounds);
+    g.setColour (borderGrey());
+    g.drawRect (bounds, 1.0f);
+}
+
+void GlobalTabView::StyleLookAndFeel::drawToggleButton (juce::Graphics& g,
+                                                        juce::ToggleButton& button,
+                                                        bool,
+                                                        bool)
+{
+    const auto bounds = button.getLocalBounds();
+    const int boxSize = juce::jmin (14, bounds.getHeight() - 6);
+    const auto boxBounds = juce::Rectangle<int> (bounds.getX() + 4,
+                                                 bounds.getCentreY() - boxSize / 2,
+                                                 boxSize,
+                                                 boxSize);
+
+    const auto fillColour = button.getToggleState() ? accentBlue() : panelGrey();
+    g.setColour (fillColour);
+    g.fillRect (boxBounds);
+    g.setColour (borderGrey());
+    g.drawRect (boxBounds);
+
+    g.setColour (button.findColour (juce::ToggleButton::textColourId));
+    g.setFont (juce::Font ("Helvetica", fontSize, juce::Font::plain));
+    g.drawText (button.getButtonText(),
+                bounds.withTrimmedLeft (boxBounds.getRight() + 8),
+                juce::Justification::centredLeft,
+                false);
 }

@@ -82,15 +82,21 @@ namespace
             configureButton (jumbleAllButton, "JUMBLE ALL");
             configureButton (resliceAllButton, "RESLICE ALL");
             configureButton (exportButton, "EXPORT");
+            configureButton (playButton, "PLAY");
+            configureButton (stopButton, "STOP");
             configureButton (recacheButton, "RECACHE");
             configureButton (lockButton, "🔒");
             configureButton (loopButton, "LOOP");
+
+            loopButton.setClickingTogglesState (true);
 
             buttons.add (&sliceAllButton);
             buttons.add (&modAllButton);
             buttons.add (&jumbleAllButton);
             buttons.add (&resliceAllButton);
             buttons.add (&exportButton);
+            buttons.add (&playButton);
+            buttons.add (&stopButton);
             buttons.add (&recacheButton);
             buttons.add (&lockButton);
             buttons.add (&loopButton);
@@ -111,6 +117,29 @@ namespace
         void setRecacheHandler (std::function<void()> handler)
         {
             recacheButton.onClick = std::move (handler);
+        }
+
+        void setPlayHandler (std::function<void()> handler)
+        {
+            playButton.onClick = std::move (handler);
+        }
+
+        void setStopHandler (std::function<void()> handler)
+        {
+            stopButton.onClick = std::move (handler);
+        }
+
+        void setLoopHandler (std::function<void(bool)> handler)
+        {
+            loopButton.onClick = [this, handler = std::move (handler)]()
+            {
+                handler (loopButton.getToggleState());
+            };
+        }
+
+        void setLoopState (bool isEnabled)
+        {
+            loopButton.setToggleState (isEnabled, juce::dontSendNotification);
         }
 
         void resized() override
@@ -205,6 +234,8 @@ namespace
         juce::TextButton jumbleAllButton;
         juce::TextButton resliceAllButton;
         juce::TextButton exportButton;
+        juce::TextButton playButton;
+        juce::TextButton stopButton;
         juce::TextButton recacheButton;
         juce::TextButton lockButton;
         juce::TextButton loopButton;
@@ -256,9 +287,12 @@ namespace
                                   private juce::ChangeListener
     {
     public:
-        PersistentFrame (juce::TabbedComponent& tabsToTrack, SliceStateStore& stateStoreToUse)
+        PersistentFrame (juce::TabbedComponent& tabsToTrack,
+                         SliceStateStore& stateStoreToUse,
+                         PreviewChainPlayer& previewPlayerToUse)
             : tabs (tabsToTrack),
-              stateStore (stateStoreToUse)
+              stateStore (stateStoreToUse),
+              previewPlayer (previewPlayerToUse)
         {
             addAndMakeVisible (focusPlaceholder);
             addAndMakeVisible (grid);
@@ -273,6 +307,33 @@ namespace
 
             if (auto* bar = dynamic_cast<ActionBar*> (actionBar.get()))
             {
+                bar->setLoopState (previewPlayer.isLooping());
+                bar->setLoopHandler ([this] (bool isLooping)
+                {
+                    previewPlayer.setLooping (isLooping);
+                });
+                bar->setPlayHandler ([this]()
+                {
+                    const auto snapshot = stateStore.getSnapshot();
+                    if (! snapshot.previewChainURL.existsAsFile())
+                    {
+                        setStatusText ("No preview chain available.");
+                        return;
+                    }
+
+                    if (! previewPlayer.startPlayback (snapshot.previewChainURL))
+                    {
+                        setStatusText ("Preview playback failed.");
+                        return;
+                    }
+
+                    setStatusText ("Preview playing.");
+                });
+                bar->setStopHandler ([this]()
+                {
+                    previewPlayer.stopPlayback();
+                    setStatusText ("Preview stopped.");
+                });
                 bar->setRecacheHandler ([this]()
                 {
                     const auto snapshot = stateStore.getSnapshot();
@@ -357,6 +418,7 @@ namespace
 
         juce::TabbedComponent& tabs;
         SliceStateStore& stateStore;
+        PreviewChainPlayer& previewPlayer;
         GreyPlaceholder focusPlaceholder;
         PreviewGrid grid;
         std::unique_ptr<juce::Component> actionBar;
@@ -453,10 +515,11 @@ namespace
         ContentArea (juce::TabbedComponent& tabsToTrack,
                      SettingsView& settingsToUse,
                      SliceStateStore& stateStoreToUse,
+                     PreviewChainPlayer& previewPlayerToUse,
                      juce::Component* liveContent)
             : tabs (tabsToTrack),
               settingsView (settingsToUse),
-              persistentFrame (tabsToTrack, stateStoreToUse),
+              persistentFrame (tabsToTrack, stateStoreToUse, previewPlayerToUse),
               mainTabView (stateStoreToUse),
               headerContainer (tabsToTrack, stateStoreToUse, mainTabView)
         {
@@ -572,7 +635,9 @@ void SettingsView::resized()
 // =======================
 
 MainComponent::MainComponent (AudioEngine& engine)
-    : settingsView (engine)
+    : audioEngine (engine),
+      settingsView (engine),
+      previewChainPlayer (engine.getDeviceManager())
 {
     recorderModule =
         std::make_unique<LiveRecorderModuleView> (engine, 0);
@@ -604,7 +669,11 @@ MainComponent::MainComponent (AudioEngine& engine)
 
     addAndMakeVisible (tabs);
 
-    auto* contentArea = new ContentArea (tabs, settingsView, stateStore, recorderModule.get());
+    auto* contentArea = new ContentArea (tabs,
+                                         settingsView,
+                                         stateStore,
+                                         previewChainPlayer,
+                                         recorderModule.get());
     contentArea->setComponentID ("contentArea");
     addAndMakeVisible (contentArea);
 }

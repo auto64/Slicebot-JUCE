@@ -15,6 +15,7 @@
 		1D375B332AAC31FB0D1CF420 /* include_juce_gui_basics.mm */ = {isa = PBXBuildFile; fileRef = 1E52D565772FA728340BBF6D; };
 		1F77DC881ABAA36CAC00BD01 /* MainComponent.cpp */ = {isa = PBXBuildFile; fileRef = 8A91AEB36FBF6E270E638B29; };
 		34038F6A91C945C9642483C5 /* Main.cpp */ = {isa = PBXBuildFile; fileRef = E50C7C8EF3CBF86C77126FD2; };
+		39EEE2CDB3250DDE354DC4A8 /* PreviewChainPlayer.cpp */ = {isa = PBXBuildFile; fileRef = 96618CFA5728CB5196E0E9A7; };
 		3C0EA97AC4E9DED7869A000B /* SliceStateStore.cpp */ = {isa = PBXBuildFile; fileRef = 547080A197C1DF271450CEDC; };
 		3CEB2CD797B6CCD7C9C2F52B /* LiveRecorderModuleView.cpp */ = {isa = PBXBuildFile; fileRef = A38D95708D05709C1AE27146; };
 		3D943A3F5049EE24BBD3D760 /* AudioToolbox.framework */ = {isa = PBXBuildFile; fileRef = 45BF7977D7FC400D5A858E69; };
@@ -117,6 +118,7 @@
 		8C99FAD59E50E73DF0374098 /* AppProperties.h */ /* AppProperties.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = AppProperties.h; path = ../../Source/AppProperties.h; sourceTree = SOURCE_ROOT; };
 		8E9AD1C0E23F7F2BBCFC5F77 /* PreviewChainOrchestrator.cpp */ /* PreviewChainOrchestrator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PreviewChainOrchestrator.cpp; path = ../../Source/PreviewChainOrchestrator.cpp; sourceTree = SOURCE_ROOT; };
 		94A51B1DF44AF667E22002EB /* Security.framework */ /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		96618CFA5728CB5196E0E9A7 /* PreviewChainPlayer.cpp */ /* PreviewChainPlayer.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PreviewChainPlayer.cpp; path = ../../Source/PreviewChainPlayer.cpp; sourceTree = SOURCE_ROOT; };
 		9D0EB9B1E50F876B36EC2DE0 /* AudioCacheStore.h */ /* AudioCacheStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = AudioCacheStore.h; path = ../../Source/AudioCacheStore.h; sourceTree = SOURCE_ROOT; };
 		9F181CBD64A70486D9E3CE40 /* RecordingCassette.cpp */ /* RecordingCassette.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = RecordingCassette.cpp; path = ../../Source/RecordingCassette.cpp; sourceTree = SOURCE_ROOT; };
 		A001969301FA4ADD320D2DAD /* RecordingBus.cpp */ /* RecordingBus.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = RecordingBus.cpp; path = ../../Source/RecordingBus.cpp; sourceTree = SOURCE_ROOT; };
@@ -138,6 +140,7 @@
 		D67809E1540692998C1EAB09 /* include_juce_graphics_Harfbuzz.cpp */ /* include_juce_graphics_Harfbuzz.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = include_juce_graphics_Harfbuzz.cpp; path = ../../JuceLibraryCode/include_juce_graphics_Harfbuzz.cpp; sourceTree = SOURCE_ROOT; };
 		D9875966ADFC6AE7A2947F80 /* FlatTileLookAndFeel.h */ /* FlatTileLookAndFeel.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = FlatTileLookAndFeel.h; path = ../../Source/FlatTileLookAndFeel.h; sourceTree = SOURCE_ROOT; };
 		E0A50355709201448F76FF86 /* BackgroundWorker.cpp */ /* BackgroundWorker.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BackgroundWorker.cpp; path = ../../Source/BackgroundWorker.cpp; sourceTree = SOURCE_ROOT; };
+		E1D2E0B8610FEDF229936757 /* PreviewChainPlayer.h */ /* PreviewChainPlayer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = PreviewChainPlayer.h; path = ../../Source/PreviewChainPlayer.h; sourceTree = SOURCE_ROOT; };
 		E34859C53E2170F3D6AF444F /* include_juce_audio_processors_headless_ara.cpp */ /* include_juce_audio_processors_headless_ara.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = include_juce_audio_processors_headless_ara.cpp; path = ../../JuceLibraryCode/include_juce_audio_processors_headless_ara.cpp; sourceTree = SOURCE_ROOT; };
 		E4F8D094F347A5E8418060B1 /* DeterministicPreviewHarness.cpp */ /* DeterministicPreviewHarness.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DeterministicPreviewHarness.cpp; path = ../../Source/DeterministicPreviewHarness.cpp; sourceTree = SOURCE_ROOT; };
 		E50C7C8EF3CBF86C77126FD2 /* Main.cpp */ /* Main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Main.cpp; path = ../../Source/Main.cpp; sourceTree = SOURCE_ROOT; };
@@ -277,6 +280,8 @@
 		C4F76AC356E18A89F340C881 /* Source */ = {
 			isa = PBXGroup;
 			children = (
+				96618CFA5728CB5196E0E9A7,
+				E1D2E0B8610FEDF229936757,
 				857E09B06C0FAA0FB1278961,
 				FB4EFCB59EECB93A0C1BA931,
 				033FF7D5EC7341809F57A9C8,
@@ -416,6 +421,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				39EEE2CDB3250DDE354DC4A8,
 				DE2BDA846397650F5411DB55,
 				7B221F80F4DE1B578E907A35,
 				57CA9428DC56EE114D03EBF4,

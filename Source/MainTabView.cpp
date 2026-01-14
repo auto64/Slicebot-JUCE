@@ -169,15 +169,21 @@ namespace
             configureButton (jumbleAllButton, "JUMBLE ALL");
             configureButton (resliceAllButton, "RESLICE ALL");
             configureButton (exportButton, "EXPORT");
+            configureButton (playButton, "PLAY");
+            configureButton (stopButton, "STOP");
             configureButton (recacheButton, "RECACHE");
             configureButton (lockButton, "🔒");
             configureButton (loopButton, "LOOP");
+
+            loopButton.setClickingTogglesState (true);
 
             buttons.add (&sliceAllButton);
             buttons.add (&modAllButton);
             buttons.add (&jumbleAllButton);
             buttons.add (&resliceAllButton);
             buttons.add (&exportButton);
+            buttons.add (&playButton);
+            buttons.add (&stopButton);
             buttons.add (&recacheButton);
             buttons.add (&lockButton);
             buttons.add (&loopButton);
@@ -198,6 +204,29 @@ namespace
         void setRecacheHandler (std::function<void()> handler)
         {
             recacheButton.onClick = std::move (handler);
+        }
+
+        void setPlayHandler (std::function<void()> handler)
+        {
+            playButton.onClick = std::move (handler);
+        }
+
+        void setStopHandler (std::function<void()> handler)
+        {
+            stopButton.onClick = std::move (handler);
+        }
+
+        void setLoopHandler (std::function<void(bool)> handler)
+        {
+            loopButton.onClick = [this, handler = std::move (handler)]()
+            {
+                handler (loopButton.getToggleState());
+            };
+        }
+
+        void setLoopState (bool isEnabled)
+        {
+            loopButton.setToggleState (isEnabled, juce::dontSendNotification);
         }
 
         void resized() override
@@ -292,6 +321,8 @@ namespace
         juce::TextButton jumbleAllButton;
         juce::TextButton resliceAllButton;
         juce::TextButton exportButton;
+        juce::TextButton playButton;
+        juce::TextButton stopButton;
         juce::TextButton recacheButton;
         juce::TextButton lockButton;
         juce::TextButton loopButton;

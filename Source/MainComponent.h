@@ -4,6 +4,7 @@
 #include "AudioEngine.h"
 #include "LiveRecorderModuleView.h"
 #include "SliceStateStore.h"
+#include "PreviewChainPlayer.h"
 
 // =======================
 // SETTINGS VIEW
@@ -50,9 +51,11 @@ public:
 private:
     juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
 
+    AudioEngine& audioEngine;
     SettingsView settingsView;
     std::unique_ptr<LiveRecorderModuleView> recorderModule;
     SliceStateStore stateStore;
+    PreviewChainPlayer previewChainPlayer;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

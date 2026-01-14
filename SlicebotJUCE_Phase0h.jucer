@@ -4,6 +4,10 @@
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" bundleIdentifier="com.auto64.slicebotjuce">
   <MAINGROUP id="wSbmOg" name="SlicebotJUCEPhase0">
     <GROUP id="{FB906DED-8C2D-2546-FAB3-946F3F9BA6B2}" name="Source">
+      <FILE id="Go5qk5" name="PreviewChainPlayer.cpp" compile="1" resource="0"
+            file="Source/PreviewChainPlayer.cpp"/>
+      <FILE id="D0l6AS" name="PreviewChainPlayer.h" compile="0" resource="0"
+            file="Source/PreviewChainPlayer.h"/>
       <FILE id="VyVYXc" name="GlobalTabView.cpp" compile="1" resource="0"
             file="Source/GlobalTabView.cpp"/>
       <FILE id="KJOK7V" name="GlobalTabView.h" compile="0" resource="0" file="Source/GlobalTabView.h"/>

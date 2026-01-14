@@ -309,8 +309,9 @@ void MainTabView::StyleLookAndFeel::drawToggleButton (juce::Graphics& g,
                 false);
 }
 
-MainTabView::MainTabView()
-    : styleLookAndFeel (kFontSize)
+MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
+    : styleLookAndFeel (kFontSize),
+      stateStore (stateStoreToUse)
 {
     setLookAndFeel (&styleLookAndFeel);
     configureSegmentButton (modeMultiFile, 100);
@@ -334,6 +335,25 @@ MainTabView::MainTabView()
     for (auto* button : { &modeMultiFile, &modeSingleRandom, &modeSingleManual, &modeLive })
         button->onClick = [this]() { updateLiveModeState(); };
 
+    sourceButton.onClick = [this]()
+    {
+        sourceDirectoryChooser = std::make_unique<juce::FileChooser> (
+            "Select Source Folder",
+            juce::File(),
+            "*");
+        constexpr int flags = juce::FileBrowserComponent::openMode
+                              | juce::FileBrowserComponent::canSelectDirectories;
+        sourceDirectoryChooser->launchAsync (flags, [this] (const juce::FileChooser& chooser)
+        {
+            const auto selectedDirectory = chooser.getResult();
+            if (selectedDirectory.exists())
+            {
+                stateStore.setSourceDirectory (selectedDirectory);
+                updateSourcePathLabel (selectedDirectory);
+            }
+        });
+    };
+
     bpmValue.setEditable (true);
     bpmValue.setColour (juce::Label::backgroundColourId, backgroundGrey());
     bpmValue.setColour (juce::Label::outlineColourId, borderGrey());
@@ -353,6 +373,7 @@ MainTabView::MainTabView()
     addAndMakeVisible (modeLive);
 
     addAndMakeVisible (sourceButton);
+    addAndMakeVisible (sourcePathLabel);
     addAndMakeVisible (subdivLabel);
     addAndMakeVisible (subdivHalfBar);
     addAndMakeVisible (subdivQuarterBar);
@@ -369,6 +390,9 @@ MainTabView::MainTabView()
     addAndMakeVisible (samplesEight);
     addAndMakeVisible (samplesSixteen);
 
+    sourcePathLabel.setColour (juce::Label::textColourId, textGrey());
+    sourcePathLabel.setJustificationType (juce::Justification::centredLeft);
+
     focusView = std::make_unique<FocusWaveformView>();
     previewGrid = std::make_unique<PreviewGrid>();
     actionBar = std::make_unique<ActionBar>();
@@ -379,6 +403,7 @@ MainTabView::MainTabView()
     addAndMakeVisible (*actionBar);
     addAndMakeVisible (*statusArea);
 
+    updateSourcePathLabel (stateStore.getSnapshot().sourceDirectory);
     updateLiveModeState();
 }
 
@@ -407,12 +432,16 @@ void MainTabView::resized()
     modeLive.setBounds (rowBounds);
 
     y += kRowHeight + kRowSpacing;
-    rowBounds = juce::Rectangle<int> (x, y, contentWidth, kRowHeight);
     if (sourceButton.isVisible())
     {
+        rowBounds = juce::Rectangle<int> (x, y, contentWidth, kRowHeight);
         sourceButton.setBounds (rowBounds.removeFromLeft (80));
         rowBounds.removeFromLeft (8);
+        sourcePathLabel.setBounds (rowBounds);
+        y += kRowHeight + kRowSpacing;
     }
+
+    rowBounds = juce::Rectangle<int> (x, y, contentWidth, kRowHeight);
     subdivLabel.setBounds (rowBounds.removeFromLeft (55));
     subdivHalfBar.setBounds (rowBounds.removeFromLeft (90));
     subdivQuarterBar.setBounds (rowBounds.removeFromLeft (90));
@@ -455,10 +484,17 @@ void MainTabView::configureSegmentButton (juce::TextButton& button, int groupId)
     button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
 }
 
+void MainTabView::updateSourcePathLabel (const juce::File& directory)
+{
+    const auto pathText = directory.exists() ? directory.getFullPathName() : "No source selected";
+    sourcePathLabel.setText (pathText, juce::dontSendNotification);
+}
+
 void MainTabView::updateLiveModeState()
 {
     const bool isLive = modeLive.getToggleState();
     sourceButton.setVisible (! isLive);
+    sourcePathLabel.setVisible (! isLive);
 }
 
 void MainTabView::setProgress (float progress)

@@ -3,7 +3,8 @@
 SliceStateStore::SliceStateSnapshot SliceStateStore::getSnapshot() const
 {
     const juce::ScopedLock lock (stateLock);
-    return SliceStateSnapshot { sliceInfos,
+    return SliceStateSnapshot { sourceDirectory,
+                                sliceInfos,
                                 previewSnippetURLs,
                                 sliceVolumeSettings,
                                 previewChainURL,
@@ -51,6 +52,12 @@ void SliceStateStore::setPreviewChainURL (juce::File newPreviewChainURL)
 {
     const juce::ScopedLock lock (stateLock);
     previewChainURL = std::move (newPreviewChainURL);
+}
+
+void SliceStateStore::setSourceDirectory (juce::File newSourceDirectory)
+{
+    const juce::ScopedLock lock (stateLock);
+    sourceDirectory = std::move (newSourceDirectory);
 }
 
 void SliceStateStore::setLayeringState (bool newLayeringMode, int newSampleCount)

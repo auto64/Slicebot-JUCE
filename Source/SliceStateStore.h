@@ -33,6 +33,7 @@ public:
 
     struct SliceStateSnapshot
     {
+        juce::File sourceDirectory;
         std::vector<SliceInfo> sliceInfos;
         std::vector<juce::File> previewSnippetURLs;
         std::vector<float> sliceVolumeSettings;
@@ -65,6 +66,7 @@ public:
                           juce::File newPreviewChainURL);
 
     void setPreviewChainURL (juce::File newPreviewChainURL);
+    void setSourceDirectory (juce::File newSourceDirectory);
     void setLayeringState (bool newLayeringMode, int newSampleCount);
     void setMergeMode (MergeMode newMergeMode);
     void setManualReverseEnabled (bool newManualReverseEnabled);
@@ -84,6 +86,7 @@ private:
                                    const std::vector<float>& newSliceVolumeSettings) const;
 
     mutable juce::CriticalSection stateLock;
+    juce::File sourceDirectory;
     std::vector<SliceInfo> sliceInfos;
     std::vector<juce::File> previewSnippetURLs;
     std::vector<float> sliceVolumeSettings;

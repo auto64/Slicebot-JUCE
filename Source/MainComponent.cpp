@@ -205,11 +205,13 @@ namespace
     public:
         ContentArea (juce::TabbedComponent& tabsToTrack,
                      SettingsView& settingsToUse,
+                     SliceStateStore& stateStoreToUse,
                      juce::Component* liveContent)
             : tabs (tabsToTrack),
               settingsView (settingsToUse),
               persistentFrame (tabsToTrack),
-              headerContainer (tabsToTrack)
+              headerContainer (tabsToTrack),
+              mainTabView (stateStoreToUse)
         {
             headerContainer.setLiveContent (liveContent);
             addAndMakeVisible (headerContainer);
@@ -350,7 +352,7 @@ MainComponent::MainComponent (AudioEngine& engine)
 
     addAndMakeVisible (tabs);
 
-    auto* contentArea = new ContentArea (tabs, settingsView, recorderModule.get());
+    auto* contentArea = new ContentArea (tabs, settingsView, stateStore, recorderModule.get());
     contentArea->setComponentID ("contentArea");
     addAndMakeVisible (contentArea);
 }

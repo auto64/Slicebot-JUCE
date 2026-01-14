@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "AudioEngine.h"
 #include "LiveRecorderModuleView.h"
+#include "SliceStateStore.h"
 
 // =======================
 // SETTINGS VIEW
@@ -50,6 +51,7 @@ private:
 
     SettingsView settingsView;
     std::unique_ptr<LiveRecorderModuleView> recorderModule;
+    SliceStateStore stateStore;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

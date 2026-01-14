@@ -1,11 +1,12 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "SliceStateStore.h"
 
 class MainTabView final : public juce::Component
 {
 public:
-    MainTabView();
+    explicit MainTabView (SliceStateStore& stateStoreToUse);
     ~MainTabView() override;
 
     void resized() override;
@@ -37,9 +38,11 @@ private:
     };
 
     void configureSegmentButton (juce::TextButton& button, int groupId);
+    void updateSourcePathLabel (const juce::File& directory);
     void updateLiveModeState();
 
     StyleLookAndFeel styleLookAndFeel;
+    SliceStateStore& stateStore;
 
     juce::TextButton modeMultiFile { "MULTI-FILE" };
     juce::TextButton modeSingleRandom { "SINGLE FILE (RANDOM)" };
@@ -47,6 +50,7 @@ private:
     juce::TextButton modeLive { "LIVE" };
 
     juce::TextButton sourceButton { "SOURCE" };
+    juce::Label sourcePathLabel { "sourcePathLabel", "No source selected" };
     juce::Label subdivLabel { "subdivLabel", "SUBDIV" };
     juce::TextButton subdivHalfBar { "1/2 BAR" };
     juce::TextButton subdivQuarterBar { "1/4 BAR" };
@@ -65,6 +69,7 @@ private:
     std::unique_ptr<juce::Component> previewGrid;
     std::unique_ptr<juce::Component> actionBar;
     std::unique_ptr<juce::Component> statusArea;
+    std::unique_ptr<juce::FileChooser> sourceDirectoryChooser;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainTabView)
 };

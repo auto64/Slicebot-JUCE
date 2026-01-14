@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "MainTabView.h"
+#include "GlobalTabView.h"
 #include "AudioCacheStore.h"
 
 namespace
@@ -130,8 +131,10 @@ namespace
                                      private juce::ChangeListener
     {
     public:
-        explicit TabHeaderContainer (juce::TabbedComponent& tabsToTrack)
-            : tabs (tabsToTrack)
+        TabHeaderContainer (juce::TabbedComponent& tabsToTrack, SliceStateStore& stateStoreToUse)
+            : tabs (tabsToTrack),
+              globalHeader (stateStoreToUse),
+              stateStore (stateStoreToUse)
         {
             addAndMakeVisible (mainHeader);
             addAndMakeVisible (globalHeader);
@@ -191,11 +194,15 @@ namespace
             globalHeader.setVisible (showGlobal);
             localHeader.setVisible (showLocal);
             liveHeader.setVisible (showLive);
+
+            if (showGlobal)
+                globalHeader.applySettingsSnapshot (stateStore.getSnapshot());
         }
 
         juce::TabbedComponent& tabs;
+        SliceStateStore& stateStore;
         GreyPlaceholder mainHeader;
-        GreyPlaceholder globalHeader;
+        GlobalTabView globalHeader;
         GreyPlaceholder localHeader;
         juce::Component liveHeader;
     };
@@ -211,7 +218,7 @@ namespace
             : tabs (tabsToTrack),
               settingsView (settingsToUse),
               persistentFrame (tabsToTrack),
-              headerContainer (tabsToTrack),
+              headerContainer (tabsToTrack, stateStoreToUse),
               mainTabView (stateStoreToUse)
         {
             headerContainer.setLiveContent (liveContent);

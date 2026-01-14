@@ -52,6 +52,7 @@
 		D1AB445C4C835BA0802DBFDE /* CoreMIDI.framework */ = {isa = PBXBuildFile; fileRef = 1E08EC5B67FEA8D711C52B02; };
 		D2953ECAF149852078853010 /* Metal.framework */ = {isa = PBXBuildFile; fileRef = 140DF22883087A2F17D778FE; settings = { ATTRIBUTES = (Weak, ); }; };
 		DE0A12E847DC98C735875326 /* SliceInfrastructure.cpp */ = {isa = PBXBuildFile; fileRef = 42D20F9E909056AE4BFD37DD; };
+		DE2BDA846397650F5411DB55 /* GlobalTabView.cpp */ = {isa = PBXBuildFile; fileRef = 857E09B06C0FAA0FB1278961; };
 		E3F2A597FCFB7EF7781D2701 /* include_juce_gui_extra.mm */ = {isa = PBXBuildFile; fileRef = 88E787FDC02F9463EDAF9CDC; };
 		ED40DE1612F82814660452F3 /* Foundation.framework */ = {isa = PBXBuildFile; fileRef = 4D37EA2D5DFCD4B80AC20CFB; };
 		EF75754C7DB3B06C3694C8A2 /* CoreAudioKit.framework */ = {isa = PBXBuildFile; fileRef = 6148F0A4FA97F7E70E2FBD71; };
@@ -110,6 +111,7 @@
 		7618142604EB366E828F35F9 /* MetalKit.framework */ /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		7B043C34101BCD34CE2485AC /* AppProperties.cpp */ /* AppProperties.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = AppProperties.cpp; path = ../../Source/AppProperties.cpp; sourceTree = SOURCE_ROOT; };
 		8504EB4C5FECE5E4C73021C3 /* SliceInfrastructure.h */ /* SliceInfrastructure.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SliceInfrastructure.h; path = ../../Source/SliceInfrastructure.h; sourceTree = SOURCE_ROOT; };
+		857E09B06C0FAA0FB1278961 /* GlobalTabView.cpp */ /* GlobalTabView.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = GlobalTabView.cpp; path = ../../Source/GlobalTabView.cpp; sourceTree = SOURCE_ROOT; };
 		88E787FDC02F9463EDAF9CDC /* include_juce_gui_extra.mm */ /* include_juce_gui_extra.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = include_juce_gui_extra.mm; path = ../../JuceLibraryCode/include_juce_gui_extra.mm; sourceTree = SOURCE_ROOT; };
 		8A91AEB36FBF6E270E638B29 /* MainComponent.cpp */ /* MainComponent.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = MainComponent.cpp; path = ../../Source/MainComponent.cpp; sourceTree = SOURCE_ROOT; };
 		8C99FAD59E50E73DF0374098 /* AppProperties.h */ /* AppProperties.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = AppProperties.h; path = ../../Source/AppProperties.h; sourceTree = SOURCE_ROOT; };
@@ -149,6 +151,7 @@
 		F2702A4E612D99931D893C69 /* include_juce_core_CompilationTime.cpp */ /* include_juce_core_CompilationTime.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = include_juce_core_CompilationTime.cpp; path = ../../JuceLibraryCode/include_juce_core_CompilationTime.cpp; sourceTree = SOURCE_ROOT; };
 		FA1270637463C04F513B7F9B /* juce_core */ /* juce_core */ = {isa = PBXFileReference; lastKnownFileType = folder; name = juce_core; path = /Applications/JUCE/modules/juce_core; sourceTree = "<absolute>"; };
 		FAF675D69337B9E3ADA2CB1D /* MainComponent.h */ /* MainComponent.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = MainComponent.h; path = ../../Source/MainComponent.h; sourceTree = SOURCE_ROOT; };
+		FB4EFCB59EECB93A0C1BA931 /* GlobalTabView.h */ /* GlobalTabView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = GlobalTabView.h; path = ../../Source/GlobalTabView.h; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -274,6 +277,8 @@
 		C4F76AC356E18A89F340C881 /* Source */ = {
 			isa = PBXGroup;
 			children = (
+				857E09B06C0FAA0FB1278961,
+				FB4EFCB59EECB93A0C1BA931,
 				033FF7D5EC7341809F57A9C8,
 				9D0EB9B1E50F876B36EC2DE0,
 				4AB2BB55898ACC4CAAD84C8E,
@@ -411,6 +416,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DE2BDA846397650F5411DB55,
 				7B221F80F4DE1B578E907A35,
 				57CA9428DC56EE114D03EBF4,
 				764DB15843CF880C4E576525,

@@ -14,13 +14,23 @@ public:
     void setProgress (float progress);
 
 private:
-    static constexpr float kModeFontSize = 13.0f;
+    static constexpr float kFontSize = 13.0f;
 
-    class ModeButtonLookAndFeel final : public juce::LookAndFeel_V4
+    class StyleLookAndFeel final : public juce::LookAndFeel_V4
     {
     public:
-        explicit ModeButtonLookAndFeel (float fontSizeToUse);
+        explicit StyleLookAndFeel (float fontSizeToUse);
         juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
+        juce::Font getLabelFont (juce::Label& label) override;
+        void drawButtonBackground (juce::Graphics& g,
+                                   juce::Button& button,
+                                   const juce::Colour& backgroundColour,
+                                   bool isMouseOverButton,
+                                   bool isButtonDown) override;
+        void drawToggleButton (juce::Graphics& g,
+                               juce::ToggleButton& button,
+                               bool isMouseOverButton,
+                               bool isButtonDown) override;
 
     private:
         float fontSize;
@@ -29,24 +39,24 @@ private:
     void configureSegmentButton (juce::TextButton& button, int groupId);
     void updateLiveModeState();
 
-    ModeButtonLookAndFeel modeLookAndFeel;
+    StyleLookAndFeel styleLookAndFeel;
 
-    juce::TextButton modeMultiFile { "Multi-file" };
-    juce::TextButton modeSingleRandom { "Single file (Random)" };
-    juce::TextButton modeSingleManual { "Single file (Manual)" };
+    juce::TextButton modeMultiFile { "MULTI-FILE" };
+    juce::TextButton modeSingleRandom { "SINGLE FILE (RANDOM)" };
+    juce::TextButton modeSingleManual { "SINGLE FILE (MANUAL)" };
     juce::TextButton modeLive { "LIVE" };
 
-    juce::TextButton sourceButton { "Source" };
-    juce::Label subdivLabel { "subdivLabel", "Subdiv" };
-    juce::TextButton subdivHalfBar { "1/2 bar" };
-    juce::TextButton subdivQuarterBar { "1/4 bar" };
-    juce::TextButton subdivEighthNote { "8th note" };
-    juce::TextButton subdivSixteenthNote { "16th note" };
-    juce::ToggleButton subdivRandom { "random" };
+    juce::TextButton sourceButton { "SOURCE" };
+    juce::Label subdivLabel { "subdivLabel", "SUBDIV" };
+    juce::TextButton subdivHalfBar { "1/2 BAR" };
+    juce::TextButton subdivQuarterBar { "1/4 BAR" };
+    juce::TextButton subdivEighthNote { "8TH NOTE" };
+    juce::TextButton subdivSixteenthNote { "16TH NOTE" };
+    juce::ToggleButton subdivRandom { "RANDOM" };
 
     juce::Label bpmLabel { "bpmLabel", "BPM:" };
     juce::Label bpmValue { "bpmValue", "128.0" };
-    juce::Label samplesLabel { "samplesLabel", "Samples:" };
+    juce::Label samplesLabel { "samplesLabel", "SAMPLES:" };
     juce::TextButton samplesFour { "4" };
     juce::TextButton samplesEight { "8" };
     juce::TextButton samplesSixteen { "16" };

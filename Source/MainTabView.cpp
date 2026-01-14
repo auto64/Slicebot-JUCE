@@ -12,28 +12,33 @@ namespace
     constexpr int kGridSpacing = 3;
     constexpr int kGridColumns = 4;
     constexpr int kGridRows = 4;
-    constexpr int kActionBarHeight = 25;
+    constexpr int kActionBarHeight = 28;
     constexpr int kStatusHeight = 24;
     constexpr int kSideColumnWidth = 24;
 
     juce::Colour backgroundGrey()
     {
-        return juce::Colour (0xffbdbdbd);
+        return juce::Colour (0xff444444);
     }
 
     juce::Colour panelGrey()
     {
-        return juce::Colour (0xffa6a6a6);
+        return juce::Colour (0xff5a5a5a);
     }
 
-    juce::Colour buttonGrey()
+    juce::Colour borderGrey()
     {
-        return juce::Colour (0xff8f8f8f);
+        return juce::Colour (0xff333333);
     }
 
-    juce::Colour buttonOnGrey()
+    juce::Colour textGrey()
     {
-        return juce::Colour (0xffdcdcdc);
+        return juce::Colour (0xffcfcfcf);
+    }
+
+    juce::Colour accentBlue()
+    {
+        return juce::Colour (0xff4fa3f7);
     }
 
     class WaveformArea final : public juce::Component
@@ -96,10 +101,10 @@ namespace
     private:
         void configureSmallButton (juce::TextButton& button)
         {
-            button.setColour (juce::TextButton::buttonColourId, buttonGrey());
-            button.setColour (juce::TextButton::buttonOnColourId, buttonOnGrey());
-            button.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
-            button.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+            button.setColour (juce::TextButton::buttonColourId, panelGrey());
+            button.setColour (juce::TextButton::buttonOnColourId, accentBlue());
+            button.setColour (juce::TextButton::textColourOffId, textGrey());
+            button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
         }
 
         juce::OwnedArray<juce::TextButton> leftButtons;
@@ -194,10 +199,10 @@ namespace
         void configureButton (juce::TextButton& button, const juce::String& text)
         {
             button.setButtonText (text);
-            button.setColour (juce::TextButton::buttonColourId, buttonGrey());
-            button.setColour (juce::TextButton::buttonOnColourId, buttonOnGrey());
-            button.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
-            button.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+            button.setColour (juce::TextButton::buttonColourId, panelGrey());
+            button.setColour (juce::TextButton::buttonOnColourId, accentBlue());
+            button.setColour (juce::TextButton::textColourOffId, textGrey());
+            button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
         }
 
         juce::TextButton sliceAllButton;
@@ -215,8 +220,9 @@ namespace
     public:
         StatusArea()
         {
-            statusLabel.setText ("Preview generated.", juce::dontSendNotification);
+            statusLabel.setText ("PREVIEW GENERATED.", juce::dontSendNotification);
             statusLabel.setJustificationType (juce::Justification::centred);
+            statusLabel.setColour (juce::Label::textColourId, textGrey());
             addAndMakeVisible (statusLabel);
         }
 
@@ -228,7 +234,8 @@ namespace
 
         void paint (juce::Graphics& g) override
         {
-            g.setColour (juce::Colours::red);
+            g.fillAll (backgroundGrey());
+            g.setColour (juce::Colour (0xffd9534f));
             const float width = static_cast<float> (getWidth());
             const float progressWidth = width * progressValue;
             g.drawLine (0.0f, 0.0f, progressWidth, 0.0f, 1.0f);
@@ -245,19 +252,67 @@ namespace
     };
 }
 
-MainTabView::ModeButtonLookAndFeel::ModeButtonLookAndFeel (float fontSizeToUse)
+MainTabView::StyleLookAndFeel::StyleLookAndFeel (float fontSizeToUse)
     : fontSize (fontSizeToUse)
 {
 }
 
-juce::Font MainTabView::ModeButtonLookAndFeel::getTextButtonFont (juce::TextButton&, int)
+juce::Font MainTabView::StyleLookAndFeel::getTextButtonFont (juce::TextButton&, int)
 {
-    return juce::Font (fontSize);
+    return juce::Font ("Helvetica", fontSize, juce::Font::plain);
+}
+
+juce::Font MainTabView::StyleLookAndFeel::getLabelFont (juce::Label&)
+{
+    return juce::Font ("Helvetica", fontSize, juce::Font::plain);
+}
+
+void MainTabView::StyleLookAndFeel::drawButtonBackground (juce::Graphics& g,
+                                                          juce::Button& button,
+                                                          const juce::Colour& backgroundColour,
+                                                          bool,
+                                                          bool)
+{
+    const auto bounds = button.getLocalBounds().toFloat();
+    const auto baseColour = button.findColour (button.getToggleState()
+                                                   ? juce::TextButton::buttonOnColourId
+                                                   : juce::TextButton::buttonColourId);
+    g.setColour (baseColour);
+    g.fillRect (bounds);
+    g.setColour (borderGrey());
+    g.drawRect (bounds, 1.0f);
+}
+
+void MainTabView::StyleLookAndFeel::drawToggleButton (juce::Graphics& g,
+                                                      juce::ToggleButton& button,
+                                                      bool,
+                                                      bool)
+{
+    const auto bounds = button.getLocalBounds();
+    const int boxSize = juce::jmin (14, bounds.getHeight() - 6);
+    const auto boxBounds = juce::Rectangle<int> (bounds.getX() + 4,
+                                                 bounds.getCentreY() - boxSize / 2,
+                                                 boxSize,
+                                                 boxSize);
+
+    const auto fillColour = button.getToggleState() ? accentBlue() : panelGrey();
+    g.setColour (fillColour);
+    g.fillRect (boxBounds);
+    g.setColour (borderGrey());
+    g.drawRect (boxBounds);
+
+    g.setColour (button.findColour (juce::ToggleButton::textColourId));
+    g.setFont (juce::Font ("Helvetica", fontSize, juce::Font::plain));
+    g.drawText (button.getButtonText(),
+                bounds.withTrimmedLeft (boxBounds.getRight() + 8),
+                juce::Justification::centredLeft,
+                false);
 }
 
 MainTabView::MainTabView()
-    : modeLookAndFeel (kModeFontSize)
+    : styleLookAndFeel (kFontSize)
 {
+    setLookAndFeel (&styleLookAndFeel);
     configureSegmentButton (modeMultiFile, 100);
     configureSegmentButton (modeSingleRandom, 100);
     configureSegmentButton (modeSingleManual, 100);
@@ -272,11 +327,6 @@ MainTabView::MainTabView()
     configureSegmentButton (samplesEight, 300);
     configureSegmentButton (samplesSixteen, 300);
 
-    modeMultiFile.setLookAndFeel (&modeLookAndFeel);
-    modeSingleRandom.setLookAndFeel (&modeLookAndFeel);
-    modeSingleManual.setLookAndFeel (&modeLookAndFeel);
-    modeLive.setLookAndFeel (&modeLookAndFeel);
-
     modeMultiFile.setToggleState (true, juce::dontSendNotification);
     subdivHalfBar.setToggleState (true, juce::dontSendNotification);
     samplesSixteen.setToggleState (true, juce::dontSendNotification);
@@ -285,14 +335,14 @@ MainTabView::MainTabView()
         button->onClick = [this]() { updateLiveModeState(); };
 
     bpmValue.setEditable (true);
-    bpmValue.setColour (juce::Label::backgroundColourId, juce::Colours::white);
-    bpmValue.setColour (juce::Label::outlineColourId, juce::Colours::grey);
-    bpmValue.setColour (juce::Label::textColourId, juce::Colours::black);
+    bpmValue.setColour (juce::Label::backgroundColourId, backgroundGrey());
+    bpmValue.setColour (juce::Label::outlineColourId, borderGrey());
+    bpmValue.setColour (juce::Label::textColourId, juce::Colours::white);
     bpmValue.setJustificationType (juce::Justification::centred);
 
-    subdivLabel.setColour (juce::Label::textColourId, juce::Colours::black);
-    bpmLabel.setColour (juce::Label::textColourId, juce::Colours::black);
-    samplesLabel.setColour (juce::Label::textColourId, juce::Colours::black);
+    subdivLabel.setColour (juce::Label::textColourId, textGrey());
+    bpmLabel.setColour (juce::Label::textColourId, textGrey());
+    samplesLabel.setColour (juce::Label::textColourId, textGrey());
     subdivLabel.setJustificationType (juce::Justification::centredLeft);
     bpmLabel.setJustificationType (juce::Justification::centredLeft);
     samplesLabel.setJustificationType (juce::Justification::centredLeft);
@@ -309,6 +359,8 @@ MainTabView::MainTabView()
     addAndMakeVisible (subdivEighthNote);
     addAndMakeVisible (subdivSixteenthNote);
     addAndMakeVisible (subdivRandom);
+
+    subdivRandom.setColour (juce::ToggleButton::textColourId, textGrey());
 
     addAndMakeVisible (bpmLabel);
     addAndMakeVisible (bpmValue);
@@ -332,15 +384,12 @@ MainTabView::MainTabView()
 
 MainTabView::~MainTabView()
 {
-    modeMultiFile.setLookAndFeel (nullptr);
-    modeSingleRandom.setLookAndFeel (nullptr);
-    modeSingleManual.setLookAndFeel (nullptr);
-    modeLive.setLookAndFeel (nullptr);
+    setLookAndFeel (nullptr);
 }
 
 void MainTabView::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff7a7a7a));
+    g.fillAll (backgroundGrey());
 }
 
 void MainTabView::resized()
@@ -400,10 +449,10 @@ void MainTabView::configureSegmentButton (juce::TextButton& button, int groupId)
 {
     button.setClickingTogglesState (true);
     button.setRadioGroupId (groupId);
-    button.setColour (juce::TextButton::buttonColourId, buttonGrey());
-    button.setColour (juce::TextButton::buttonOnColourId, buttonOnGrey());
-    button.setColour (juce::TextButton::textColourOffId, juce::Colours::black);
-    button.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+    button.setColour (juce::TextButton::buttonColourId, panelGrey());
+    button.setColour (juce::TextButton::buttonOnColourId, accentBlue());
+    button.setColour (juce::TextButton::textColourOffId, textGrey());
+    button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
 }
 
 void MainTabView::updateLiveModeState()

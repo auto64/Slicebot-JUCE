@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "MainTabView.h"
+#include "AudioCacheStore.h"
 
 namespace
 {
@@ -355,6 +356,14 @@ MainComponent::MainComponent (AudioEngine& engine)
     auto* contentArea = new ContentArea (tabs, settingsView, stateStore, recorderModule.get());
     contentArea->setComponentID ("contentArea");
     addAndMakeVisible (contentArea);
+}
+
+void MainComponent::visibilityChanged()
+{
+    if (! isVisible())
+        return;
+
+    stateStore.setCacheData (AudioCacheStore::load());
 }
 
 void MainComponent::resized()

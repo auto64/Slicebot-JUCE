@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <vector>
+#include "AudioCacheStore.h"
 
 class SliceStateStore
 {
@@ -35,6 +36,7 @@ public:
     {
         juce::File sourceDirectory;
         juce::File sourceFile;
+        AudioCacheStore::CacheData cacheData;
         std::vector<SliceInfo> sliceInfos;
         std::vector<juce::File> previewSnippetURLs;
         std::vector<float> sliceVolumeSettings;
@@ -56,6 +58,8 @@ public:
     SliceStateStore() = default;
 
     SliceStateSnapshot getSnapshot() const;
+
+    void setCacheData (AudioCacheStore::CacheData newCacheData);
 
     void setAlignedSlices (std::vector<SliceInfo> newSliceInfos,
                            std::vector<juce::File> newPreviewSnippetURLs,
@@ -90,6 +94,7 @@ private:
     mutable juce::CriticalSection stateLock;
     juce::File sourceDirectory;
     juce::File sourceFile;
+    AudioCacheStore::CacheData cacheData;
     std::vector<SliceInfo> sliceInfos;
     std::vector<juce::File> previewSnippetURLs;
     std::vector<float> sliceVolumeSettings;

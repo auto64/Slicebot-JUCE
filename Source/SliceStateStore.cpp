@@ -5,6 +5,7 @@ SliceStateStore::SliceStateSnapshot SliceStateStore::getSnapshot() const
     const juce::ScopedLock lock (stateLock);
     return SliceStateSnapshot { sourceDirectory,
                                 sourceFile,
+                                cacheData,
                                 sliceInfos,
                                 previewSnippetURLs,
                                 sliceVolumeSettings,
@@ -21,6 +22,12 @@ SliceStateStore::SliceStateSnapshot SliceStateStore::getSnapshot() const
                                 stutterTruncateEnabled,
                                 stutterStartFraction,
                                 stutterUndoBackup };
+}
+
+void SliceStateStore::setCacheData (AudioCacheStore::CacheData newCacheData)
+{
+    const juce::ScopedLock lock (stateLock);
+    cacheData = std::move (newCacheData);
 }
 
 void SliceStateStore::setAlignedSlices (std::vector<SliceInfo> newSliceInfos,

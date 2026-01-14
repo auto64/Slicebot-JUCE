@@ -44,6 +44,7 @@ public:
     explicit MainComponent (AudioEngine& engine);
     ~MainComponent() override = default;
 
+    void visibilityChanged() override;
     void resized() override;
 
 private:

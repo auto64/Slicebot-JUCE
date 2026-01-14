@@ -70,9 +70,14 @@ bool AudioFileIO::readToMonoBuffer (const juce::File& inputFile,
     if (! reader->read (&tempBuffer, 0, static_cast<int> (reader->lengthInSamples), 0, true, true))
         return false;
 
-    juce::AudioBuffer<float> monoBuffer = tempBuffer.getNumChannels() == 1
-        ? tempBuffer
-        : mixToMono (tempBuffer);
+    const bool needsDownmix = tempBuffer.getNumChannels() != kTargetChannels;
+    const bool needsResample = ! juce::approximatelyEqual (reader->sampleRate, kTargetSampleRate);
+    if (needsDownmix || needsResample)
+        formatDescription = formatDescription + " -> converted to 44.1k/mono";
+
+    juce::AudioBuffer<float> monoBuffer = needsDownmix
+        ? mixToMono (tempBuffer)
+        : tempBuffer;
 
     juce::AudioBuffer<float> resampled = resampleToTarget (monoBuffer, reader->sampleRate);
 

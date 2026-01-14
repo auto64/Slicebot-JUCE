@@ -88,13 +88,24 @@ namespace
         }
     };
 
-    class GridCell final : public juce::Component
+    class GridCell final : public juce::Component,
+                           private juce::ChangeListener
     {
     public:
-        GridCell (int indexToDraw, std::function<void(int)> clickHandler)
+        GridCell (int indexToDraw,
+                  juce::AudioFormatManager& formatManager,
+                  juce::AudioThumbnailCache& thumbnailCache,
+                  std::function<void(int)> clickHandler)
             : index (indexToDraw),
+              thumbnail (64, formatManager, thumbnailCache),
               onClick (std::move (clickHandler))
         {
+            thumbnail.addChangeListener (this);
+        }
+
+        ~GridCell() override
+        {
+            thumbnail.removeChangeListener (this);
         }
 
         void paint (juce::Graphics& g) override
@@ -102,6 +113,19 @@ namespace
             g.fillAll (juce::Colours::darkgrey);
             g.setColour (juce::Colours::grey);
             g.drawRect (getLocalBounds(), 1);
+
+            if (thumbnail.getTotalLength() > 0.0)
+            {
+                g.setColour (juce::Colours::lightgrey);
+                thumbnail.drawChannels (g, getLocalBounds().reduced (4), 0.0, thumbnail.getTotalLength(), 1.0f);
+                return;
+            }
+
+            g.setColour (juce::Colours::grey);
+            g.drawFittedText ("EMPTY",
+                              getLocalBounds().reduced (4),
+                              juce::Justification::centred,
+                              1);
         }
 
         void mouseUp (const juce::MouseEvent&) override
@@ -115,8 +139,29 @@ namespace
             onClick = std::move (handler);
         }
 
+        void setSourceFile (const juce::File& file)
+        {
+            if (file == currentFile)
+                return;
+
+            currentFile = file;
+            thumbnail.clear();
+
+            if (currentFile.existsAsFile())
+                thumbnail.setSource (new juce::FileInputSource (currentFile));
+
+            repaint();
+        }
+
     private:
+        void changeListenerCallback (juce::ChangeBroadcaster*) override
+        {
+            repaint();
+        }
+
         int index = 0;
+        juce::AudioThumbnail thumbnail;
+        juce::File currentFile;
         std::function<void(int)> onClick;
     };
 
@@ -125,9 +170,10 @@ namespace
     public:
         PreviewGrid()
         {
+            formatManager.registerBasicFormats();
             for (int index = 0; index < totalCells; ++index)
             {
-                auto cell = std::make_unique<GridCell> (index, nullptr);
+                auto cell = std::make_unique<GridCell> (index, formatManager, thumbnailCache, nullptr);
                 addAndMakeVisible (*cell);
                 cells.add (std::move (cell));
             }
@@ -137,6 +183,17 @@ namespace
         {
             for (auto* cell : cells)
                 cell->setClickHandler (handler);
+        }
+
+        void setSliceFiles (const std::vector<juce::File>& files)
+        {
+            for (int index = 0; index < totalCells; ++index)
+            {
+                if (index < static_cast<int> (files.size()))
+                    cells[index]->setSourceFile (files[static_cast<std::size_t> (index)]);
+                else
+                    cells[index]->setSourceFile (juce::File());
+            }
         }
 
         void resized() override
@@ -161,6 +218,8 @@ namespace
         static constexpr int cellH = 64;
         static constexpr int spacing = 3;
 
+        juce::AudioFormatManager formatManager;
+        juce::AudioThumbnailCache thumbnailCache { 32 };
         juce::OwnedArray<GridCell> cells;
     };
 
@@ -435,6 +494,7 @@ namespace
                     {
                         focusedSliceIndex = 0;
                         focusPlaceholder.setSourceFile (snapshot.previewSnippetURLs.front());
+                        grid.setSliceFiles (snapshot.previewSnippetURLs);
                     }
 
                     setStatusText ("Slice all complete.");

@@ -10,11 +10,7 @@
 
 namespace {
     constexpr double kTargetSampleRate = 44100.0;
-    constexpr double kDefaultBpm = 120.0;
-    constexpr bool kRandomSubdivisionModeEnabled = true;
-    constexpr int kSelectedSubdivision = 4;
-    constexpr bool kTransientDetectEnabled = true;
-    const juce::Array<int> kAllowedSubdivisionsSteps = { 8, 4, 2, 1 };
+    const juce::Array<int> kAllowedSubdivisionsSteps = { 16, 8, 4, 2 };
     constexpr int kPachinkoStutterCountMin = 2;
     constexpr int kPachinkoStutterCountMax = 8;
     constexpr float kPachinkoVolumeReductionMin = 0.0f;
@@ -22,22 +18,22 @@ namespace {
     constexpr float kPachinkoPitchShiftMin = -12.0f;
     constexpr float kPachinkoPitchShiftMax = 12.0f;
 
-    double resolvedBpm()
+    double resolvedBpm (double bpm)
     {
-        if (kDefaultBpm <= 0.0)
+        if (bpm <= 0.0)
             return 128.0;
 
-        return kDefaultBpm;
+        return bpm;
     }
 
-    double secondsPerBeat()
+    double secondsPerBeat (double bpm)
     {
-        return 60.0 / resolvedBpm();
+        return 60.0 / resolvedBpm (bpm);
     }
 
-    int barWindowFrames()
+    int barWindowFrames (double bpm)
     {
-        const double seconds = secondsPerBeat() * 4.0;
+        const double seconds = secondsPerBeat (bpm) * 4.0;
         return static_cast<int> (std::lround (seconds * kTargetSampleRate));
     }
 
@@ -45,37 +41,37 @@ namespace {
     {
         switch (subdivisionSteps)
         {
+            case 16: return 16;
             case 8: return 8;
             case 4: return 4;
             case 2: return 2;
-            case 1: return 1;
             default: break;
         }
 
         return 4;
     }
 
-    int resolvedSubdivision()
+    int resolvedSubdivision (int subdivisionSteps)
     {
         for (const int step : kAllowedSubdivisionsSteps)
         {
-            if (step == kSelectedSubdivision)
+            if (step == subdivisionSteps)
                 return step;
         }
 
         return 4;
     }
 
-    int subdivisionToFrameCount (int subdivisionSteps)
+    int subdivisionToFrameCount (double bpm, int subdivisionSteps)
     {
         const int beats = subdivisionToBeats (subdivisionSteps);
-        const double durationSeconds = secondsPerBeat() * static_cast<double> (beats);
+        const double durationSeconds = secondsPerBeat (bpm) * static_cast<double> (beats);
         return static_cast<int> (std::lround (durationSeconds * kTargetSampleRate));
     }
 
-    int noGoZoneFrames()
+    int noGoZoneFrames (double bpm)
     {
-        const double seconds = std::ceil (secondsPerBeat() * 8.0);
+        const double seconds = std::ceil (secondsPerBeat (bpm) * 8.0);
         return static_cast<int> (std::lround (seconds * kTargetSampleRate));
     }
 
@@ -214,9 +210,12 @@ bool MutationOrchestrator::requestResliceSingle (int index)
         auto sliceInfos = snapshot.sliceInfos;
         auto previewSnippetURLs = snapshot.previewSnippetURLs;
         auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
+        const double bpm = snapshot.bpm;
+        const int subdivisionSteps = resolvedSubdivision (snapshot.subdivisionSteps);
+        const bool transientDetectEnabled = snapshot.transientDetectionEnabled;
 
         const bool layeringMode = snapshot.layeringMode;
-        const int sampleCount = snapshot.sampleCount;
+        const int sampleCount = snapshot.sampleCountSetting;
         if (layeringMode)
         {
             if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
@@ -240,16 +239,16 @@ bool MutationOrchestrator::requestResliceSingle (int index)
                 return false;
 
             const int fileDurationFrames = converted.buffer.getNumSamples();
-            const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames());
+            const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
 
             juce::Random random;
             int startFrame = random.nextInt (maxCandidateStart + 1);
 
-            const int snippetFrameCount = sliceInfo.snippetFrameCount;
+            const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
             const auto refined = refinedStart (converted.buffer,
                                                startFrame,
-                                               barWindowFrames(),
-                                               kTransientDetectEnabled);
+                                               barWindowFrames (bpm),
+                                               transientDetectEnabled);
             if (refined.has_value())
                 startFrame = refined.value();
 
@@ -270,6 +269,7 @@ bool MutationOrchestrator::requestResliceSingle (int index)
 
             SliceStateStore::SliceInfo updatedInfo = sliceInfo;
             updatedInfo.startFrame = startFrame;
+            updatedInfo.snippetFrameCount = snippetFrameCount;
             sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
             return true;
         };
@@ -313,12 +313,15 @@ bool MutationOrchestrator::requestResliceAll()
         auto sliceInfos = snapshot.sliceInfos;
         auto previewSnippetURLs = snapshot.previewSnippetURLs;
         auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
+        const double bpm = snapshot.bpm;
+        const int subdivisionSteps = resolvedSubdivision (snapshot.subdivisionSteps);
+        const bool transientDetectEnabled = snapshot.transientDetectionEnabled;
 
         if (sliceInfos.empty())
             return;
 
         const bool layeringMode = snapshot.layeringMode;
-        const int sampleCount = snapshot.sampleCount;
+        const int sampleCount = snapshot.sampleCountSetting;
         if (layeringMode)
         {
             if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
@@ -346,14 +349,14 @@ bool MutationOrchestrator::requestResliceAll()
                     return false;
 
                 const int fileDurationFrames = converted.buffer.getNumSamples();
-                const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames());
+                const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
                 int startFrame = random.nextInt (maxCandidateStart + 1);
 
-                const int snippetFrameCount = sliceInfo.snippetFrameCount;
+                const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
                 const auto refined = refinedStart (converted.buffer,
                                                    startFrame,
-                                                   barWindowFrames(),
-                                                   kTransientDetectEnabled);
+                                                   barWindowFrames (bpm),
+                                                   transientDetectEnabled);
                 if (refined.has_value())
                     startFrame = refined.value();
 
@@ -374,6 +377,7 @@ bool MutationOrchestrator::requestResliceAll()
 
                 SliceStateStore::SliceInfo updatedInfo = sliceInfo;
                 updatedInfo.startFrame = startFrame;
+                updatedInfo.snippetFrameCount = snippetFrameCount;
                 sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
                 return true;
             };
@@ -424,9 +428,11 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
         auto sliceInfos = snapshot.sliceInfos;
         auto previewSnippetURLs = snapshot.previewSnippetURLs;
         auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
+        const double bpm = snapshot.bpm;
+        const int subdivisionSteps = resolvedSubdivision (snapshot.subdivisionSteps);
 
         const bool layeringMode = snapshot.layeringMode;
-        const int sampleCount = snapshot.sampleCount;
+        const int sampleCount = snapshot.sampleCountSetting;
         if (layeringMode)
         {
             if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
@@ -442,7 +448,7 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
             const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
             const juce::File sourceFile = sliceInfo.fileURL;
             const int startFrame = sliceInfo.startFrame;
-            const int snippetFrameCount = sliceInfo.snippetFrameCount;
+            const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
 
             AudioFileIO audioFileIO;
             AudioFileIO::ConvertedAudio converted;
@@ -467,6 +473,9 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
             if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
                 return false;
 
+            SliceStateStore::SliceInfo updatedInfo = sliceInfo;
+            updatedInfo.snippetFrameCount = snippetFrameCount;
+            sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
             return true;
         };
 
@@ -509,12 +518,14 @@ bool MutationOrchestrator::requestRegenerateAll()
         auto sliceInfos = snapshot.sliceInfos;
         auto previewSnippetURLs = snapshot.previewSnippetURLs;
         auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
+        const double bpm = snapshot.bpm;
+        const int subdivisionSteps = resolvedSubdivision (snapshot.subdivisionSteps);
 
         if (sliceInfos.empty())
             return;
 
         const bool layeringMode = snapshot.layeringMode;
-        const int sampleCount = snapshot.sampleCount;
+        const int sampleCount = snapshot.sampleCountSetting;
         if (layeringMode)
         {
             if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
@@ -522,7 +533,6 @@ bool MutationOrchestrator::requestRegenerateAll()
         }
 
         AudioFileIO audioFileIO;
-        juce::Random random;
 
         const int loopCount = layeringMode ? sampleCount : static_cast<int> (sliceInfos.size());
         for (int logicalIndex = 0; logicalIndex < loopCount; ++logicalIndex)
@@ -535,7 +545,7 @@ bool MutationOrchestrator::requestRegenerateAll()
                 const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
                 const juce::File sourceFile = sliceInfo.fileURL;
                 const int startFrame = sliceInfo.startFrame;
-                const int originalFrameCount = sliceInfo.snippetFrameCount;
+                const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
 
                 AudioFileIO::ConvertedAudio converted;
                 juce::String formatDescription;
@@ -544,15 +554,6 @@ bool MutationOrchestrator::requestRegenerateAll()
                     return false;
 
                 const int fileDurationFrames = converted.buffer.getNumSamples();
-                int snippetFrameCount = originalFrameCount;
-
-                if (kRandomSubdivisionModeEnabled)
-                {
-                    const int subdivisionSteps =
-                        kAllowedSubdivisionsSteps[random.nextInt (kAllowedSubdivisionsSteps.size())];
-                    snippetFrameCount = subdivisionToFrameCount (subdivisionSteps);
-                }
-
                 if (startFrame + snippetFrameCount > fileDurationFrames)
                     return false;
 
@@ -568,12 +569,9 @@ bool MutationOrchestrator::requestRegenerateAll()
                 if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
                     return false;
 
-                if (! kRandomSubdivisionModeEnabled)
-                {
-                    SliceStateStore::SliceInfo updatedInfo = sliceInfo;
-                    updatedInfo.snippetFrameCount = snippetFrameCount;
-                    sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
-                }
+                SliceStateStore::SliceInfo updatedInfo = sliceInfo;
+                updatedInfo.snippetFrameCount = snippetFrameCount;
+                sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
 
                 return true;
             };

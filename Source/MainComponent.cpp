@@ -6,6 +6,29 @@
 
 namespace
 {
+    class FocusPreviewArea final : public juce::Component
+    {
+    public:
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (juce::Colours::darkgrey);
+        }
+
+        void mouseUp (const juce::MouseEvent&) override
+        {
+            if (onClick != nullptr)
+                onClick();
+        }
+
+        void setClickHandler (std::function<void()> handler)
+        {
+            onClick = std::move (handler);
+        }
+
+    private:
+        std::function<void()> onClick;
+    };
+
     class GreyPlaceholder final : public juce::Component
     {
     public:
@@ -18,8 +41,9 @@ namespace
     class GridCell final : public juce::Component
     {
     public:
-        explicit GridCell (int indexToDraw)
-            : index (indexToDraw)
+        GridCell (int indexToDraw, std::function<void(int)> clickHandler)
+            : index (indexToDraw),
+              onClick (std::move (clickHandler))
         {
         }
 
@@ -30,8 +54,20 @@ namespace
             g.drawRect (getLocalBounds(), 1);
         }
 
+        void mouseUp (const juce::MouseEvent&) override
+        {
+            if (onClick != nullptr)
+                onClick (index);
+        }
+
+        void setClickHandler (std::function<void(int)> handler)
+        {
+            onClick = std::move (handler);
+        }
+
     private:
         int index = 0;
+        std::function<void(int)> onClick;
     };
 
     class PreviewGrid final : public juce::Component
@@ -41,10 +77,16 @@ namespace
         {
             for (int index = 0; index < totalCells; ++index)
             {
-                auto cell = std::make_unique<GridCell> (index);
+                auto cell = std::make_unique<GridCell> (index, nullptr);
                 addAndMakeVisible (*cell);
                 cells.add (std::move (cell));
             }
+        }
+
+        void setCellClickHandler (std::function<void(int)> handler)
+        {
+            for (auto* cell : cells)
+                cell->setClickHandler (handler);
         }
 
         void resized() override
@@ -82,8 +124,6 @@ namespace
             configureButton (jumbleAllButton, "JUMBLE ALL");
             configureButton (resliceAllButton, "RESLICE ALL");
             configureButton (exportButton, "EXPORT");
-            configureButton (playButton, "PLAY");
-            configureButton (stopButton, "STOP");
             configureButton (recacheButton, "RECACHE");
             configureButton (lockButton, "🔒");
             configureButton (loopButton, "LOOP");
@@ -95,8 +135,6 @@ namespace
             buttons.add (&jumbleAllButton);
             buttons.add (&resliceAllButton);
             buttons.add (&exportButton);
-            buttons.add (&playButton);
-            buttons.add (&stopButton);
             buttons.add (&recacheButton);
             buttons.add (&lockButton);
             buttons.add (&loopButton);
@@ -117,16 +155,6 @@ namespace
         void setRecacheHandler (std::function<void()> handler)
         {
             recacheButton.onClick = std::move (handler);
-        }
-
-        void setPlayHandler (std::function<void()> handler)
-        {
-            playButton.onClick = std::move (handler);
-        }
-
-        void setStopHandler (std::function<void()> handler)
-        {
-            stopButton.onClick = std::move (handler);
         }
 
         void setLoopHandler (std::function<void(bool)> handler)
@@ -234,8 +262,6 @@ namespace
         juce::TextButton jumbleAllButton;
         juce::TextButton resliceAllButton;
         juce::TextButton exportButton;
-        juce::TextButton playButton;
-        juce::TextButton stopButton;
         juce::TextButton recacheButton;
         juce::TextButton lockButton;
         juce::TextButton loopButton;
@@ -308,31 +334,35 @@ namespace
             if (auto* bar = dynamic_cast<ActionBar*> (actionBar.get()))
             {
                 bar->setLoopState (previewPlayer.isLooping());
-                bar->setLoopHandler ([this] (bool isLooping)
+                bar->setLoopHandler ([this, bar] (bool isLooping)
                 {
-                    previewPlayer.setLooping (isLooping);
-                });
-                bar->setPlayHandler ([this]()
-                {
-                    const auto snapshot = stateStore.getSnapshot();
-                    if (! snapshot.previewChainURL.existsAsFile())
+                    if (isLooping)
                     {
-                        setStatusText ("No preview chain available.");
+                        const auto snapshot = stateStore.getSnapshot();
+                        if (! snapshot.previewChainURL.existsAsFile())
+                        {
+                            setStatusText ("No preview chain available.");
+                            previewPlayer.setLooping (false);
+                            bar->setLoopState (false);
+                            return;
+                        }
+
+                        previewPlayer.setLooping (true);
+                        if (! previewPlayer.startPlayback (snapshot.previewChainURL, true))
+                        {
+                            setStatusText ("Preview loop failed.");
+                            previewPlayer.setLooping (false);
+                            bar->setLoopState (false);
+                            return;
+                        }
+
+                        setStatusText ("Preview looping.");
                         return;
                     }
 
-                    if (! previewPlayer.startPlayback (snapshot.previewChainURL))
-                    {
-                        setStatusText ("Preview playback failed.");
-                        return;
-                    }
-
-                    setStatusText ("Preview playing.");
-                });
-                bar->setStopHandler ([this]()
-                {
+                    previewPlayer.setLooping (false);
                     previewPlayer.stopPlayback();
-                    setStatusText ("Preview stopped.");
+                    setStatusText ("Preview loop stopped.");
                 });
                 bar->setRecacheHandler ([this]()
                 {
@@ -363,6 +393,17 @@ namespace
                     setProgress (1.0f);
                 });
             }
+
+            focusPlaceholder.setClickHandler ([this]()
+            {
+                playFocusedSlice();
+            });
+
+            grid.setCellClickHandler ([this] (int index)
+            {
+                focusedSliceIndex = index;
+                playSliceAtIndex (index);
+            });
         }
 
         ~PersistentFrame() override
@@ -410,6 +451,50 @@ namespace
         }
 
     private:
+        void playFocusedSlice()
+        {
+            if (focusedSliceIndex < 0)
+            {
+                setStatusText ("No focused slice selected.");
+                return;
+            }
+
+            playSliceAtIndex (focusedSliceIndex);
+        }
+
+        void playSliceAtIndex (int index)
+        {
+            const auto snapshot = stateStore.getSnapshot();
+            if (index < 0 || index >= static_cast<int> (snapshot.previewSnippetURLs.size()))
+            {
+                setStatusText ("No preview slice available.");
+                return;
+            }
+
+            const auto& snippetFile = snapshot.previewSnippetURLs[static_cast<std::size_t> (index)];
+            if (! snippetFile.existsAsFile())
+            {
+                setStatusText ("Preview slice missing.");
+                return;
+            }
+
+            if (previewPlayer.isLooping())
+            {
+                previewPlayer.setLooping (false);
+                previewPlayer.stopPlayback();
+                if (auto* bar = dynamic_cast<ActionBar*> (actionBar.get()))
+                    bar->setLoopState (false);
+            }
+
+            if (! previewPlayer.startPlayback (snippetFile, false))
+            {
+                setStatusText ("Preview slice playback failed.");
+                return;
+            }
+
+            setStatusText ("Preview slice playing.");
+        }
+
         void changeListenerCallback (juce::ChangeBroadcaster*) override
         {
             // Settings bypass path: hide frame while Settings tab is active.
@@ -419,10 +504,11 @@ namespace
         juce::TabbedComponent& tabs;
         SliceStateStore& stateStore;
         PreviewChainPlayer& previewPlayer;
-        GreyPlaceholder focusPlaceholder;
+        FocusPreviewArea focusPlaceholder;
         PreviewGrid grid;
         std::unique_ptr<juce::Component> actionBar;
         std::unique_ptr<juce::Component> statusArea;
+        int focusedSliceIndex = -1;
     };
 
     class TabHeaderContainer final : public juce::Component,

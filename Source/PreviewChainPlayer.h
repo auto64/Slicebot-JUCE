@@ -9,6 +9,7 @@ public:
     ~PreviewChainPlayer();
 
     bool startPlayback (const juce::File& previewChainFile);
+    bool startPlayback (const juce::File& previewChainFile, bool shouldLoop);
     void stopPlayback();
     void setLooping (bool shouldLoop);
 

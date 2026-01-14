@@ -13,11 +13,36 @@ namespace
             + ", ch=" + juce::String (reader.numChannels);
     }
 
-    bool matchesTargetFormat (const juce::AudioFormatReader& reader)
+    juce::AudioBuffer<float> mixToMono (const juce::AudioBuffer<float>& input)
     {
-        return juce::approximatelyEqual (reader.sampleRate, kTargetSampleRate)
-            && reader.bitsPerSample == kTargetBitsPerSample
-            && reader.numChannels == kTargetChannels;
+        const int numSamples = input.getNumSamples();
+        const int numChannels = input.getNumChannels();
+        juce::AudioBuffer<float> monoBuffer (1, numSamples);
+        monoBuffer.clear();
+
+        for (int channel = 0; channel < numChannels; ++channel)
+            monoBuffer.addFrom (0, 0, input, channel, 0, numSamples, 1.0f / static_cast<float> (numChannels));
+
+        return monoBuffer;
+    }
+
+    juce::AudioBuffer<float> resampleToTarget (const juce::AudioBuffer<float>& input, double sourceRate)
+    {
+        if (juce::approximatelyEqual (sourceRate, kTargetSampleRate))
+            return input;
+
+        const int inputSamples = input.getNumSamples();
+        const double ratio = kTargetSampleRate / sourceRate;
+        const int outputSamples = static_cast<int> (std::ceil (inputSamples * ratio));
+
+        juce::AudioBuffer<float> resampled (1, outputSamples);
+        resampled.clear();
+
+        juce::LagrangeInterpolator interpolator;
+        interpolator.reset();
+        interpolator.process (ratio, input.getReadPointer (0), resampled.getWritePointer (0), outputSamples);
+
+        return resampled;
     }
 }
 
@@ -39,16 +64,19 @@ bool AudioFileIO::readToMonoBuffer (const juce::File& inputFile,
 
     formatDescription = describeFormat (*reader);
 
-    if (! matchesTargetFormat (*reader))
-        return false;
-
     juce::AudioBuffer<float> tempBuffer (static_cast<int> (reader->numChannels),
                                          static_cast<int> (reader->lengthInSamples));
 
     if (! reader->read (&tempBuffer, 0, static_cast<int> (reader->lengthInSamples), 0, true, true))
         return false;
 
-    output.buffer = std::move (tempBuffer);
+    juce::AudioBuffer<float> monoBuffer = tempBuffer.getNumChannels() == 1
+        ? tempBuffer
+        : mixToMono (tempBuffer);
+
+    juce::AudioBuffer<float> resampled = resampleToTarget (monoBuffer, reader->sampleRate);
+
+    output.buffer = std::move (resampled);
     output.sampleRate = kTargetSampleRate;
 
     return true;

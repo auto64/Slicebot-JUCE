@@ -349,6 +349,12 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
     for (auto* button : { &modeMultiFile, &modeSingleRandom, &modeSingleManual, &modeLive })
         button->onClick = [this]() { updateLiveModeState(); };
 
+    for (auto* button : { &subdivHalfBar, &subdivQuarterBar, &subdivEighthNote, &subdivSixteenthNote })
+        button->onClick = [this]() { updateSliceSettingsFromUi(); };
+
+    for (auto* button : { &samplesFour, &samplesEight, &samplesSixteen })
+        button->onClick = [this]() { updateSliceSettingsFromUi(); };
+
     sourceButton.onClick = [this]()
     {
         const bool isManualSingle = modeSingleManual.getToggleState();
@@ -387,6 +393,10 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
     bpmValue.setColour (juce::Label::outlineColourId, borderGrey());
     bpmValue.setColour (juce::Label::textColourId, juce::Colours::white);
     bpmValue.setJustificationType (juce::Justification::centred);
+    bpmValue.onTextChange = [this]()
+    {
+        updateSliceSettingsFromUi();
+    };
 
     subdivLabel.setColour (juce::Label::textColourId, textGrey());
     bpmLabel.setColour (juce::Label::textColourId, textGrey());
@@ -463,6 +473,7 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
         });
     }
 
+    applySettingsSnapshot (stateStore.getSnapshot());
     updateSourcePathLabel (stateStore.getSnapshot());
     updateLiveModeState();
 }
@@ -542,6 +553,51 @@ void MainTabView::configureSegmentButton (juce::TextButton& button, int groupId)
     button.setColour (juce::TextButton::buttonOnColourId, accentBlue());
     button.setColour (juce::TextButton::textColourOffId, textGrey());
     button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+}
+
+void MainTabView::applySettingsSnapshot (const SliceStateStore::SliceStateSnapshot& snapshot)
+{
+    bpmValue.setText (juce::String (snapshot.bpm, 1), juce::dontSendNotification);
+
+    subdivHalfBar.setToggleState (snapshot.subdivisionSteps == 2, juce::dontSendNotification);
+    subdivQuarterBar.setToggleState (snapshot.subdivisionSteps == 4, juce::dontSendNotification);
+    subdivEighthNote.setToggleState (snapshot.subdivisionSteps == 8, juce::dontSendNotification);
+    subdivSixteenthNote.setToggleState (snapshot.subdivisionSteps == 16, juce::dontSendNotification);
+
+    samplesFour.setToggleState (snapshot.sampleCountSetting == 4, juce::dontSendNotification);
+    samplesEight.setToggleState (snapshot.sampleCountSetting == 8, juce::dontSendNotification);
+    samplesSixteen.setToggleState (snapshot.sampleCountSetting == 16, juce::dontSendNotification);
+}
+
+void MainTabView::updateSliceSettingsFromUi()
+{
+    const auto snapshot = stateStore.getSnapshot();
+    const double newBpm = bpmValue.getText().getDoubleValue();
+
+    int subdivision = snapshot.subdivisionSteps;
+    if (subdivHalfBar.getToggleState())
+        subdivision = 2;
+    else if (subdivQuarterBar.getToggleState())
+        subdivision = 4;
+    else if (subdivEighthNote.getToggleState())
+        subdivision = 8;
+    else if (subdivSixteenthNote.getToggleState())
+        subdivision = 16;
+
+    int samples = snapshot.sampleCountSetting;
+    if (samplesFour.getToggleState())
+        samples = 4;
+    else if (samplesEight.getToggleState())
+        samples = 8;
+    else if (samplesSixteen.getToggleState())
+        samples = 16;
+
+    const double safeBpm = newBpm > 0.0 ? newBpm : snapshot.bpm;
+
+    stateStore.setSliceSettings (safeBpm,
+                                 subdivision,
+                                 samples,
+                                 snapshot.transientDetectionEnabled);
 }
 
 void MainTabView::updateSourcePathLabel (const SliceStateStore::SliceStateSnapshot& snapshot)

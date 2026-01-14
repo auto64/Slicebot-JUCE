@@ -38,6 +38,8 @@ private:
     };
 
     void configureSegmentButton (juce::TextButton& button, int groupId);
+    void applySettingsSnapshot (const SliceStateStore::SliceStateSnapshot& snapshot);
+    void updateSliceSettingsFromUi();
     void updateSourcePathLabel (const SliceStateStore::SliceStateSnapshot& snapshot);
     void updateStatusText (const juce::String& text);
     void updateProgress (float progress);

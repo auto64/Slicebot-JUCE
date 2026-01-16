@@ -3,10 +3,18 @@
 
 namespace
 {
+    constexpr const char* kVirtualInIdentifier = "virtual:slicebot-sync-in";
+    constexpr const char* kVirtualInName = "SliceBot Sync In";
     constexpr const char* kVirtualOutIdentifier = "virtual:slicebot-sync-out";
     constexpr const char* kVirtualOutName = "SliceBot Sync Out";
     constexpr double kMinMidiBpm = 20.0;
     constexpr double kMaxMidiBpm = 300.0;
+    enum ExternalTransportCommand
+    {
+        kExternalTransportNone = 0,
+        kExternalTransportStart = 1,
+        kExternalTransportStop = 2
+    };
 
     juce::File findSoundFile (const juce::String& name)
     {
@@ -73,6 +81,7 @@ AudioEngine::AudioEngine()
 AudioEngine::~AudioEngine()
 {
     stopTimer();
+    closeMidiInputDevice();
     closeMidiOutputDevice();
 
     auto& props = AppProperties::get().properties();
@@ -110,6 +119,9 @@ void AudioEngine::restoreState()
         midiVirtualPortsEnabled = settings->getBoolValue ("midiVirtualPortsEnabled", defaultVirtualPorts);
         midiSyncBpm = settings->getDoubleValue ("midiSyncBpm", midiSyncBpm);
         transportMasterRecorderIndex = -1;
+        externalTransportPlaying.store (false);
+        lastExternalClockMs.store (0.0);
+        pendingExternalTransportCommand.store (kExternalTransportNone);
 
         for (int index = 0; index < RecordingBus::kNumRecorders; ++index)
         {
@@ -151,6 +163,7 @@ void AudioEngine::restoreState()
     }
 
     updateMidiClockState();
+    updateMidiInputState();
 }
 
 void AudioEngine::saveState()
@@ -230,6 +243,7 @@ void AudioEngine::setMidiSyncMode (MidiSyncMode mode)
 {
     midiSyncMode = mode;
     updateMidiClockState();
+    updateMidiInputState();
 }
 
 AudioEngine::MidiSyncMode AudioEngine::getMidiSyncMode() const
@@ -240,6 +254,7 @@ AudioEngine::MidiSyncMode AudioEngine::getMidiSyncMode() const
 void AudioEngine::setMidiSyncInputDeviceIdentifier (const juce::String& identifier)
 {
     midiSyncInputDeviceIdentifier = identifier;
+    updateMidiInputState();
 }
 
 void AudioEngine::setMidiSyncOutputDeviceIdentifier (const juce::String& identifier)
@@ -262,6 +277,7 @@ void AudioEngine::setMidiVirtualPortsEnabled (bool enabled)
 {
     midiVirtualPortsEnabled = enabled;
     updateMidiClockState();
+    updateMidiInputState();
 }
 
 bool AudioEngine::getMidiVirtualPortsEnabled() const
@@ -338,6 +354,48 @@ void AudioEngine::hiResTimerCallback()
         output->sendMessageNow (juce::MidiMessage::midiClock());
 }
 
+void AudioEngine::handleIncomingMidiMessage (juce::MidiInput*,
+                                             const juce::MidiMessage& message)
+{
+    if (midiSyncMode != MidiSyncMode::receive)
+        return;
+
+    if (message.isMidiClock())
+    {
+        lastExternalClockMs.store (juce::Time::getMillisecondCounterHiRes());
+        return;
+    }
+
+    if (message.isMidiStart() || message.isMidiContinue())
+    {
+        externalTransportPlaying.store (true);
+        pendingExternalTransportCommand.store (kExternalTransportStart);
+        triggerAsyncUpdate();
+        return;
+    }
+
+    if (message.isMidiStop())
+    {
+        externalTransportPlaying.store (false);
+        pendingExternalTransportCommand.store (kExternalTransportStop);
+        triggerAsyncUpdate();
+        return;
+    }
+}
+
+void AudioEngine::handleAsyncUpdate()
+{
+    const int command = pendingExternalTransportCommand.exchange (kExternalTransportNone);
+    if (command == kExternalTransportStart)
+    {
+        applyExternalTransportStart();
+        return;
+    }
+
+    if (command == kExternalTransportStop)
+        applyExternalTransportStop();
+}
+
 void AudioEngine::updateMidiClockState()
 {
     const bool shouldSend = midiSyncMode == MidiSyncMode::send
@@ -374,6 +432,58 @@ void AudioEngine::updateMidiClockState()
         sendMidiStart();
         midiClockRunning = true;
     }
+}
+
+void AudioEngine::updateMidiInputState()
+{
+    const bool shouldReceive = midiSyncMode == MidiSyncMode::receive
+                               && ! midiSyncInputDeviceIdentifier.isEmpty();
+    const bool virtualInputSelected =
+        midiSyncInputDeviceIdentifier == kVirtualInIdentifier;
+
+    if (! shouldReceive || (virtualInputSelected && ! midiVirtualPortsEnabled))
+    {
+        closeMidiInputDevice();
+        return;
+    }
+
+    openMidiInputDevice();
+}
+
+void AudioEngine::openMidiInputDevice()
+{
+    if (activeMidiInputIdentifier == midiSyncInputDeviceIdentifier
+        && midiInput != nullptr)
+    {
+        return;
+    }
+
+    closeMidiInputDevice();
+    activeMidiInputIdentifier = midiSyncInputDeviceIdentifier;
+
+    if (activeMidiInputIdentifier.isEmpty())
+        return;
+
+    if (activeMidiInputIdentifier == kVirtualInIdentifier)
+    {
+        if (midiVirtualPortsEnabled)
+            midiInput = juce::MidiInput::createNewDevice (kVirtualInName, this);
+    }
+    else
+    {
+        midiInput = juce::MidiInput::openDevice (activeMidiInputIdentifier, this);
+    }
+
+    if (midiInput != nullptr)
+        midiInput->start();
+}
+
+void AudioEngine::closeMidiInputDevice()
+{
+    if (midiInput != nullptr)
+        midiInput->stop();
+
+    midiInput.reset();
 }
 
 void AudioEngine::openMidiOutputDevice()
@@ -427,6 +537,136 @@ void AudioEngine::sendMidiStop()
 {
     if (auto* output = getActiveMidiOutput())
         output->sendMessageNow (juce::MidiMessage::midiStop());
+}
+
+void AudioEngine::applyExternalTransportStart()
+{
+    if (midiSyncMode != MidiSyncMode::receive)
+        return;
+
+    if (! hasAnyRecorderMidiInEnabled())
+        return;
+
+    bool shouldUseLatchGroup = false;
+    bool anyRecordArmEnabled = false;
+
+    for (int index = 0; index < RecordingBus::kNumRecorders; ++index)
+    {
+        if (! recorderMidiInEnabled[index])
+            continue;
+
+        if (recordingBus.isRecorderLatchEnabled (index))
+            shouldUseLatchGroup = true;
+
+        if (recordingBus.isRecorderRecordArmEnabled (index))
+            anyRecordArmEnabled = true;
+    }
+
+    if (anyRecordArmEnabled)
+    {
+        if (shouldUseLatchGroup)
+        {
+            armLatchedRecorders();
+            return;
+        }
+
+        for (int index = 0; index < RecordingBus::kNumRecorders; ++index)
+        {
+            if (! recorderMidiInEnabled[index])
+                continue;
+
+            if (recordingBus.isRecorderRecordArmEnabled (index))
+                armRecorder (index);
+        }
+        return;
+    }
+
+    if (shouldUseLatchGroup)
+    {
+        startLatchedPlayback();
+        return;
+    }
+
+    for (int index = 0; index < RecordingBus::kNumRecorders; ++index)
+    {
+        if (! recorderMidiInEnabled[index])
+            continue;
+
+        startPlayback (index);
+    }
+}
+
+void AudioEngine::applyExternalTransportStop()
+{
+    if (midiSyncMode != MidiSyncMode::receive)
+        return;
+
+    if (! hasAnyRecorderMidiInEnabled())
+        return;
+
+    bool shouldUseLatchGroup = false;
+    bool anyRecording = false;
+    bool anyPlaying = false;
+
+    for (int index = 0; index < RecordingBus::kNumRecorders; ++index)
+    {
+        if (! recorderMidiInEnabled[index])
+            continue;
+
+        if (recordingBus.isRecorderLatchEnabled (index))
+            shouldUseLatchGroup = true;
+
+        if (recordingBus.isRecorderArmed (index))
+            anyRecording = true;
+
+        if (recordingBus.isRecorderPlaying (index))
+            anyPlaying = true;
+    }
+
+    if (anyRecording)
+    {
+        if (shouldUseLatchGroup)
+        {
+            stopLatchedRecorders();
+            return;
+        }
+
+        for (int index = 0; index < RecordingBus::kNumRecorders; ++index)
+        {
+            if (! recorderMidiInEnabled[index])
+                continue;
+
+            confirmStopRecorder (index);
+        }
+        return;
+    }
+
+    if (! anyPlaying)
+        return;
+
+    if (shouldUseLatchGroup)
+    {
+        stopLatchedPlayback();
+        return;
+    }
+
+    for (int index = 0; index < RecordingBus::kNumRecorders; ++index)
+    {
+        if (! recorderMidiInEnabled[index])
+            continue;
+
+        stopPlayback (index);
+    }
+}
+
+bool AudioEngine::hasAnyRecorderMidiInEnabled() const
+{
+    for (bool enabled : recorderMidiInEnabled)
+    {
+        if (enabled)
+            return true;
+    }
+    return false;
 }
 
 // =====================================================

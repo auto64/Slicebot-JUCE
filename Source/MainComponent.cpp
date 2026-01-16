@@ -1091,7 +1091,8 @@ SettingsView::SettingsView (AudioEngine& engine)
 void SettingsView::resized()
 {
     auto bounds = getLocalBounds().reduced (20);
-    auto deviceArea = bounds.removeFromTop (260);
+    const int deviceHeight = juce::jmin (320, bounds.getHeight());
+    auto deviceArea = bounds.removeFromTop (deviceHeight);
     deviceSelector->setBounds (deviceArea);
 
     bounds.removeFromTop (10);

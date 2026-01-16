@@ -7,7 +7,9 @@
 #include "RecordingModule.h"
 
 class AudioEngine final : public juce::AudioIODeviceCallback,
-                          private juce::HighResolutionTimer
+                          private juce::HighResolutionTimer,
+                          private juce::MidiInputCallback,
+                          private juce::AsyncUpdater
 {
 public:
     enum class UiSound
@@ -127,12 +129,21 @@ public:
 
 private:
     void hiResTimerCallback() override;
+    void handleIncomingMidiMessage (juce::MidiInput* source,
+                                    const juce::MidiMessage& message) override;
+    void handleAsyncUpdate() override;
     void updateMidiClockState();
+    void updateMidiInputState();
+    void openMidiInputDevice();
+    void closeMidiInputDevice();
     void openMidiOutputDevice();
     void closeMidiOutputDevice();
     juce::MidiOutput* getActiveMidiOutput() const;
     void sendMidiStart();
     void sendMidiStop();
+    void applyExternalTransportStart();
+    void applyExternalTransportStop();
+    bool hasAnyRecorderMidiInEnabled() const;
 
     juce::AudioDeviceManager deviceManager;
     RecordingBus recordingBus;
@@ -186,6 +197,11 @@ private:
 #endif
     double midiSyncBpm = 120.0;
     bool midiClockRunning = false;
+    std::atomic<bool> externalTransportPlaying { false };
+    std::atomic<double> lastExternalClockMs { 0.0 };
+    std::atomic<int> pendingExternalTransportCommand { 0 };
+    juce::String activeMidiInputIdentifier;
+    std::unique_ptr<juce::MidiInput> midiInput;
     juce::String activeMidiOutputIdentifier;
     std::unique_ptr<juce::MidiOutput> midiOutput;
     std::unique_ptr<juce::MidiOutput> midiVirtualOutput;

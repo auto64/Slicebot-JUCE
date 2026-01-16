@@ -1,6 +1,7 @@
 #include "LiveRecorderModuleView.h"
 #include "AudioEngine.h"
 #include "RecordingModule.h"
+#include "RecordingBus.h"
 #include <cmath>
 #include <utility>
 
@@ -419,9 +420,16 @@ void LiveRecorderModuleView::buttonClicked (juce::Button* b)
         if (isPlaying)
         {
             if (hasLatched)
+            {
                 audioEngine.stopLatchedPlayback();
+                for (int index = 0; index < RecordingBus::kNumRecorders; ++index)
+                    audioEngine.seekRecorderPlayback (index, 0.0);
+            }
             else
+            {
                 audioEngine.stopPlayback (recorderIndex);
+                audioEngine.seekRecorderPlayback (recorderIndex, 0.0);
+            }
             return;
         }
 
@@ -706,16 +714,27 @@ void LiveRecorderModuleView::timerCallback()
     }
     else
     {
-        progress = audioEngine.getRecorderPlaybackProgress (recorderIndex);
-    }
-
-    if (! recordArmEnabled)
-    {
         isPlaying = audioEngine.isRecorderPlaying (recorderIndex);
+        if (isPlaying)
+        {
+            progress = audioEngine.getRecorderPlaybackProgress (recorderIndex);
+            if (progress >= 1.0)
+            {
+                audioEngine.stopPlayback (recorderIndex);
+                audioEngine.seekRecorderPlayback (recorderIndex, 0.0);
+                isPlaying = false;
+                progress = 0.0;
+            }
+        }
+        else
+        {
+            progress = 0.0;
+        }
         timeCounter.setName (isPlaying ? "PLAYING" : "PLAY_IDLE");
         timeCounter.setButtonText ("");
     }
-    else
+
+    if (recordArmEnabled)
     {
         if (! isRecording)
         {

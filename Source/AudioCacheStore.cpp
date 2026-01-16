@@ -4,7 +4,8 @@
 namespace
 {
     AudioCacheStore::CacheEntry makeEntry (const juce::File& file,
-                                           const juce::AudioFormatReader& reader)
+                                           const juce::AudioFormatReader& reader,
+                                           double minDurationSeconds)
     {
         AudioCacheStore::CacheEntry entry;
         entry.path = file.getFullPathName();
@@ -14,6 +15,7 @@ namespace
         if (reader.sampleRate > 0.0)
             entry.durationSeconds = static_cast<double> (reader.lengthInSamples) / reader.sampleRate;
 
+        entry.isCandidate = entry.durationSeconds >= minDurationSeconds;
         return entry;
     }
 
@@ -42,6 +44,7 @@ namespace
         entryObject->setProperty ("durationSeconds", entry.durationSeconds);
         entryObject->setProperty ("sampleRate", entry.sampleRate);
         entryObject->setProperty ("numChannels", entry.numChannels);
+        entryObject->setProperty ("isCandidate", entry.isCandidate);
         return entryObject.release();
     }
 
@@ -55,6 +58,8 @@ namespace
             entry.durationSeconds = static_cast<double> (object->getProperty ("durationSeconds"));
             entry.sampleRate = static_cast<double> (object->getProperty ("sampleRate"));
             entry.numChannels = static_cast<int> (object->getProperty ("numChannels"));
+            if (object->hasProperty ("isCandidate"))
+                entry.isCandidate = static_cast<bool> (object->getProperty ("isCandidate"));
             return ! entry.path.isEmpty();
         }
 
@@ -73,14 +78,30 @@ juce::File AudioCacheStore::getCacheFile()
 
 AudioCacheStore::CacheData AudioCacheStore::buildFromSource (const juce::File& source,
                                                              bool isDirectory,
-                                                             std::function<void (int current, int total)> progressCallback)
+                                                             double bpm,
+                                                             std::atomic<bool>* shouldCancel,
+                                                             std::function<void (int current, int total)> progressCallback,
+                                                             bool* wasCancelled)
 {
     CacheData data;
     data.sourcePath = source.getFullPathName();
     data.isDirectorySource = isDirectory;
 
+    if (wasCancelled != nullptr)
+        *wasCancelled = false;
+
     juce::AudioFormatManager formatManager;
     formatManager.registerBasicFormats();
+
+    const double resolvedBpm = bpm > 0.0 ? bpm : 128.0;
+    const double minDurationSeconds = (60.0 / resolvedBpm) * 32.0;
+
+    if (shouldCancel != nullptr && shouldCancel->load())
+    {
+        if (wasCancelled != nullptr)
+            *wasCancelled = true;
+        return data;
+    }
 
     if (isDirectory && source.isDirectory())
     {
@@ -91,6 +112,13 @@ AudioCacheStore::CacheData AudioCacheStore::buildFromSource (const juce::File& s
         const int total = files.size();
         for (const auto& file : files)
         {
+            if (shouldCancel != nullptr && shouldCancel->load())
+            {
+                if (wasCancelled != nullptr)
+                    *wasCancelled = true;
+                break;
+            }
+
             ++current;
             std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (file));
             if (reader == nullptr)
@@ -100,7 +128,7 @@ AudioCacheStore::CacheData AudioCacheStore::buildFromSource (const juce::File& s
                 continue;
             }
 
-            data.entries.add (makeEntry (file, *reader));
+            data.entries.add (makeEntry (file, *reader, minDurationSeconds));
 
             if (progressCallback)
                 progressCallback (current, total);
@@ -113,7 +141,7 @@ AudioCacheStore::CacheData AudioCacheStore::buildFromSource (const juce::File& s
 
         std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (source));
         if (reader != nullptr)
-            data.entries.add (makeEntry (source, *reader));
+            data.entries.add (makeEntry (source, *reader, minDurationSeconds));
 
         if (progressCallback)
             progressCallback (1, 1);

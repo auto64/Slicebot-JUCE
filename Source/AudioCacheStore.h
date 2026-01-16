@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <atomic>
 #include <functional>
 
 class AudioCacheStore
@@ -12,6 +13,7 @@ public:
         double durationSeconds = 0.0;
         double sampleRate = 0.0;
         int numChannels = 0;
+        bool isCandidate = true;
     };
 
     struct CacheData
@@ -24,7 +26,10 @@ public:
     static juce::File getCacheFile();
     static CacheData buildFromSource (const juce::File& source,
                                       bool isDirectory,
-                                      std::function<void (int current, int total)> progressCallback = {});
+                                      double bpm,
+                                      std::atomic<bool>* shouldCancel,
+                                      std::function<void (int current, int total)> progressCallback = {},
+                                      bool* wasCancelled = nullptr);
     static CacheData load();
     static bool save (const CacheData& data);
 };

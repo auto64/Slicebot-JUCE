@@ -10,7 +10,7 @@
 
 namespace {
     constexpr double kTargetSampleRate = 44100.0;
-    const juce::Array<int> kAllowedSubdivisionsSteps = { 16, 8, 4, 2 };
+    const juce::Array<int> kAllowedSubdivisionsSteps = { 8, 4, 2, 1 };
     constexpr int kPachinkoStutterCountMin = 2;
     constexpr int kPachinkoStutterCountMax = 8;
     constexpr float kPachinkoVolumeReductionMin = 0.0f;
@@ -41,10 +41,10 @@ namespace {
     {
         switch (subdivisionSteps)
         {
-            case 2: return 8.0;  // half bar
+            case 8: return 8.0;  // half bar
             case 4: return 4.0;  // quarter bar (one beat)
-            case 8: return 2.0;  // eighth note
-            case 16: return 1.0; // sixteenth note
+            case 2: return 2.0;  // eighth note
+            case 1: return 1.0;  // sixteenth note
             default: break;
         }
 
@@ -60,6 +60,69 @@ namespace {
         }
 
         return 4;
+    }
+
+    int randomSubdivision (juce::Random& random)
+    {
+        const int index = random.nextInt (kAllowedSubdivisionsSteps.size());
+        return kAllowedSubdivisionsSteps[index];
+    }
+
+    std::vector<int> buildRandomSubdivisions (int count)
+    {
+        std::vector<int> subdivisions;
+        subdivisions.reserve (static_cast<std::size_t> (count));
+        juce::Random random;
+        for (int i = 0; i < count; ++i)
+            subdivisions.push_back (randomSubdivision (random));
+        return subdivisions;
+    }
+
+    juce::File getLiveRecordingsDirectory()
+    {
+        auto baseDir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
+        if (baseDir == juce::File())
+            return juce::File();
+
+        return baseDir.getChildFile ("LiveRecordings");
+    }
+
+    std::vector<juce::File> loadActiveLiveModuleFiles()
+    {
+        const auto liveDir = getLiveRecordingsDirectory();
+        if (liveDir == juce::File())
+            return {};
+
+        const auto metadataFile = liveDir.getChildFile ("liveModules.json");
+        if (! metadataFile.existsAsFile())
+            return {};
+
+        const auto parsed = juce::JSON::parse (metadataFile.loadFileAsString());
+        auto* array = parsed.getArray();
+        if (array == nullptr)
+            return {};
+
+        std::vector<juce::File> liveFiles;
+        for (const auto& entry : *array)
+        {
+            auto* object = entry.getDynamicObject();
+            if (object == nullptr)
+                continue;
+
+            const bool isActive = static_cast<bool> (object->getProperty ("isActive"));
+            if (! isActive)
+                continue;
+
+            const juce::String filePath = object->getProperty ("filePath").toString();
+            if (filePath.isEmpty())
+                continue;
+
+            juce::File file (filePath);
+            if (file.existsAsFile())
+                liveFiles.push_back (file);
+        }
+
+        return liveFiles;
     }
 
     int subdivisionToFrameCount (double bpm, int subdivisionSteps)
@@ -416,9 +479,9 @@ bool MutationOrchestrator::requestResliceAll()
             SliceStateStore::SliceInfo updatedInfo = sliceInfo;
             updatedInfo.startFrame = startFrame;
             updatedInfo.snippetFrameCount = snippetFrameCount;
-                sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
-                return true;
-            };
+            sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
+            return true;
+        };
 
             if (! resliceIndex (leftIndex))
                 continue;
@@ -455,8 +518,6 @@ bool MutationOrchestrator::requestSliceAll()
     {
         const auto snapshot = stateStore.getSnapshot();
         const auto& cacheData = snapshot.cacheData;
-        if (cacheData.entries.isEmpty())
-            return;
 
         const bool layeringMode = snapshot.layeringMode;
         const int sampleCount = snapshot.sampleCountSetting;
@@ -472,23 +533,118 @@ bool MutationOrchestrator::requestSliceAll()
         sliceVolumeSettings.reserve (static_cast<std::size_t> (targetCount));
 
         const double bpm = snapshot.bpm;
-        const int subdivisionSteps = resolvedSubdivision (snapshot.subdivisionSteps);
-        const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
-        if (snippetFrameCount <= 0)
-            return;
+        const int defaultSubdivision = resolvedSubdivision (snapshot.subdivisionSteps);
+
+        std::vector<int> subdivisions;
+        if (snapshot.randomSubdivisionEnabled)
+        {
+            if (layeringMode)
+            {
+                auto baseSubdivisions = buildRandomSubdivisions (sampleCount);
+                subdivisions.reserve (baseSubdivisions.size() * 2);
+                subdivisions.insert (subdivisions.end(), baseSubdivisions.begin(), baseSubdivisions.end());
+                subdivisions.insert (subdivisions.end(), baseSubdivisions.begin(), baseSubdivisions.end());
+            }
+            else
+            {
+                subdivisions = buildRandomSubdivisions (targetCount);
+            }
+        }
+
+        auto subdivisionForIndex = [&] (int index)
+        {
+            if (! subdivisions.empty())
+                return subdivisions[static_cast<std::size_t> (index)];
+            return defaultSubdivision;
+        };
+
+        juce::Array<AudioCacheStore::CacheEntry> availableEntries;
+        std::vector<juce::File> liveFiles;
+
+        switch (snapshot.sourceMode)
+        {
+            case SliceStateStore::SourceMode::multi:
+            {
+                for (const auto& entry : cacheData.entries)
+                {
+                    if (entry.isCandidate)
+                        availableEntries.add (entry);
+                }
+                break;
+            }
+            case SliceStateStore::SourceMode::singleRandom:
+            {
+                for (const auto& entry : cacheData.entries)
+                {
+                    if (entry.isCandidate)
+                        availableEntries.add (entry);
+                }
+                if (! availableEntries.isEmpty())
+                {
+                    juce::Random random;
+                    const int selectedIndex = random.nextInt (availableEntries.size());
+                    const auto selected = availableEntries[selectedIndex];
+                    availableEntries.clear();
+                    availableEntries.add (selected);
+                }
+                break;
+            }
+            case SliceStateStore::SourceMode::singleManual:
+            {
+                if (! snapshot.sourceFile.existsAsFile())
+                    return;
+                break;
+            }
+            case SliceStateStore::SourceMode::live:
+            {
+                liveFiles = loadActiveLiveModuleFiles();
+                break;
+            }
+        }
+
+        if (snapshot.sourceMode == SliceStateStore::SourceMode::live)
+        {
+            if (liveFiles.empty())
+                return;
+        }
+        else if (snapshot.sourceMode == SliceStateStore::SourceMode::singleManual)
+        {
+            if (! snapshot.sourceFile.existsAsFile())
+                return;
+        }
+        else
+        {
+            if (availableEntries.isEmpty())
+                return;
+        }
 
         AudioFileIO audioFileIO;
         juce::Random random;
-        const int entryCount = cacheData.entries.size();
+        const int entryCount = availableEntries.size();
 
         for (int index = 0; index < targetCount; ++index)
         {
             bool added = false;
             for (int attempt = 0; attempt < 5 && ! added; ++attempt)
             {
-                const int entryIndex = random.nextInt (entryCount);
-                const auto& entry = cacheData.entries.getReference (entryIndex);
-                juce::File sourceFile (entry.path);
+                juce::File sourceFile;
+                if (snapshot.sourceMode == SliceStateStore::SourceMode::singleManual)
+                {
+                    sourceFile = snapshot.sourceFile;
+                }
+                else if (snapshot.sourceMode == SliceStateStore::SourceMode::live)
+                {
+                    if (liveFiles.empty())
+                        return;
+                    sourceFile = liveFiles[static_cast<std::size_t> (random.nextInt (static_cast<int> (liveFiles.size())))];
+                }
+                else
+                {
+                    const int entryIndex = random.nextInt (entryCount);
+                    const auto& entry = availableEntries.getReference (entryIndex);
+                    sourceFile = juce::File (entry.path);
+                }
+
                 if (! sourceFile.existsAsFile())
                     continue;
 
@@ -503,6 +659,10 @@ bool MutationOrchestrator::requestSliceAll()
 
                 const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
                 int startFrame = random.nextInt (maxCandidateStart + 1);
+                const int subdivisionSteps = subdivisionForIndex (index);
+                const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
+                if (snippetFrameCount <= 0)
+                    continue;
 
                 const juce::File outputFile = sourceFile.getSiblingFile ("slice_" + juce::String (index) + ".wav");
 
@@ -686,7 +846,7 @@ bool MutationOrchestrator::requestRegenerateAll()
         auto previewSnippetURLs = snapshot.previewSnippetURLs;
         auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
         const double bpm = snapshot.bpm;
-        const int subdivisionSteps = resolvedSubdivision (snapshot.subdivisionSteps);
+        const int defaultSubdivision = resolvedSubdivision (snapshot.subdivisionSteps);
 
         if (sliceInfos.empty())
             return;
@@ -700,6 +860,7 @@ bool MutationOrchestrator::requestRegenerateAll()
         }
 
         AudioFileIO audioFileIO;
+        juce::Random random;
 
         const int loopCount = layeringMode ? sampleCount : static_cast<int> (sliceInfos.size());
         for (int logicalIndex = 0; logicalIndex < loopCount; ++logicalIndex)
@@ -712,6 +873,8 @@ bool MutationOrchestrator::requestRegenerateAll()
                 const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
                 const juce::File sourceFile = sliceInfo.fileURL;
                 const int startFrame = sliceInfo.startFrame;
+                const int subdivisionSteps =
+                    snapshot.randomSubdivisionEnabled ? randomSubdivision (random) : defaultSubdivision;
                 const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
 
                 juce::String formatDescription;
@@ -734,6 +897,7 @@ bool MutationOrchestrator::requestRegenerateAll()
 
                 SliceStateStore::SliceInfo updatedInfo = sliceInfo;
                 updatedInfo.snippetFrameCount = snippetFrameCount;
+                updatedInfo.subdivisionSteps = subdivisionSteps;
                 sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
 
                 return true;
@@ -1062,7 +1226,10 @@ bool MutationOrchestrator::hasStutterUndoBackup() const
 
 bool MutationOrchestrator::guardMutation() const
 {
-    return ! caching.load();
+    if (caching.load())
+        return false;
+
+    return ! stateStore.isCaching();
 }
 
 bool MutationOrchestrator::validateIndex (int index) const

@@ -7,6 +7,14 @@
 class SliceStateStore
 {
 public:
+    enum class SourceMode
+    {
+        multi,
+        singleRandom,
+        singleManual,
+        live
+    };
+
     enum class MergeMode
     {
         none,
@@ -37,10 +45,13 @@ public:
         juce::File sourceDirectory;
         juce::File sourceFile;
         AudioCacheStore::CacheData cacheData;
+        SourceMode sourceMode = SourceMode::multi;
         double bpm = 128.0;
         int subdivisionSteps = 4;
         int sampleCountSetting = 16;
+        bool randomSubdivisionEnabled = false;
         bool transientDetectionEnabled = true;
+        bool isCaching = false;
         std::vector<SliceInfo> sliceInfos;
         std::vector<juce::File> previewSnippetURLs;
         std::vector<float> sliceVolumeSettings;
@@ -68,6 +79,10 @@ public:
                            int newSubdivisionSteps,
                            int newSampleCountSetting,
                            bool newTransientDetectionEnabled);
+    void setSourceMode (SourceMode newMode);
+    void setRandomSubdivisionEnabled (bool enabled);
+    void setCaching (bool cachingState);
+    bool isCaching() const;
 
     void setAlignedSlices (std::vector<SliceInfo> newSliceInfos,
                            std::vector<juce::File> newPreviewSnippetURLs,
@@ -103,10 +118,13 @@ private:
     juce::File sourceDirectory;
     juce::File sourceFile;
     AudioCacheStore::CacheData cacheData;
+    SourceMode sourceMode = SourceMode::multi;
     double bpm = 128.0;
     int subdivisionSteps = 4;
     int sampleCountSetting = 16;
+    bool randomSubdivisionEnabled = false;
     bool transientDetectionEnabled = true;
+    bool isCachingState = false;
     std::vector<SliceInfo> sliceInfos;
     std::vector<juce::File> previewSnippetURLs;
     std::vector<float> sliceVolumeSettings;

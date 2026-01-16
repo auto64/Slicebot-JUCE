@@ -6,10 +6,13 @@ SliceStateStore::SliceStateSnapshot SliceStateStore::getSnapshot() const
     return SliceStateSnapshot { sourceDirectory,
                                 sourceFile,
                                 cacheData,
+                                sourceMode,
                                 bpm,
                                 subdivisionSteps,
                                 sampleCountSetting,
+                                randomSubdivisionEnabled,
                                 transientDetectionEnabled,
+                                isCachingState,
                                 sliceInfos,
                                 previewSnippetURLs,
                                 sliceVolumeSettings,
@@ -44,6 +47,30 @@ void SliceStateStore::setSliceSettings (double newBpm,
     subdivisionSteps = newSubdivisionSteps;
     sampleCountSetting = newSampleCountSetting;
     transientDetectionEnabled = newTransientDetectionEnabled;
+}
+
+void SliceStateStore::setSourceMode (SourceMode newMode)
+{
+    const juce::ScopedLock lock (stateLock);
+    sourceMode = newMode;
+}
+
+void SliceStateStore::setRandomSubdivisionEnabled (bool enabled)
+{
+    const juce::ScopedLock lock (stateLock);
+    randomSubdivisionEnabled = enabled;
+}
+
+void SliceStateStore::setCaching (bool cachingState)
+{
+    const juce::ScopedLock lock (stateLock);
+    isCachingState = cachingState;
+}
+
+bool SliceStateStore::isCaching() const
+{
+    const juce::ScopedLock lock (stateLock);
+    return isCachingState;
 }
 
 void SliceStateStore::setAlignedSlices (std::vector<SliceInfo> newSliceInfos,

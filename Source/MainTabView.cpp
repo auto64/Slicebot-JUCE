@@ -430,7 +430,7 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
     samplesSixteen.setToggleState (true, juce::dontSendNotification);
 
     for (auto* button : { &modeMultiFile, &modeSingleRandom, &modeSingleManual, &modeLive })
-        button->onClick = [this]() { updateLiveModeState(); };
+        button->onClick = [this]() { updateSourceModeState(); };
 
     for (auto* button : { &subdivHalfBar, &subdivQuarterBar, &subdivEighthNote, &subdivSixteenthNote })
         button->onClick = [this]() { updateSliceSettingsFromUi(); };
@@ -438,8 +438,20 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
     for (auto* button : { &samplesFour, &samplesEight, &samplesSixteen })
         button->onClick = [this]() { updateSliceSettingsFromUi(); };
 
+    subdivRandom.onClick = [this]()
+    {
+        stateStore.setRandomSubdivisionEnabled (subdivRandom.getToggleState());
+    };
+
     sourceButton.onClick = [this]()
     {
+        if (isCaching.load())
+        {
+            cancelCache.store (true);
+            updateStatusText ("Stopping cache...");
+            return;
+        }
+
         const bool isManualSingle = modeSingleManual.getToggleState();
         const auto chooserTitle = isManualSingle ? "Select Source File" : "Select Source Folder";
         sourceChooser = std::make_unique<juce::FileChooser> (
@@ -460,13 +472,49 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
             else
                 stateStore.setSourceDirectory (selectedItem);
 
-            updateStatusText ("Caching source...");
+            cancelCache.store (false);
+            setCachingState (true);
+            updateStatusText ("Recaching input directory...");
             updateProgress (0.0f);
-            const auto cacheData = AudioCacheStore::buildFromSource (selectedItem, ! isManualSingle);
-            AudioCacheStore::save (cacheData);
-            stateStore.setCacheData (cacheData);
-            updateStatusText ("Cache updated.");
-            updateProgress (1.0f);
+
+            cacheWorker.enqueue ([this, selectedItem, isManualSingle]()
+            {
+                bool wasCancelled = false;
+                const double bpm = stateStore.getSnapshot().bpm;
+                const auto cacheData = AudioCacheStore::buildFromSource (
+                    selectedItem,
+                    ! isManualSingle,
+                    bpm,
+                    &cancelCache,
+                    [this] (int current, int total)
+                    {
+                        if (total <= 0)
+                            return;
+                        const float progress = static_cast<float> (current) / static_cast<float> (total);
+                        juce::MessageManager::callAsync ([this, current, total, progress]()
+                        {
+                            updateStatusText ("Recaching: " + juce::String (current) + " of " + juce::String (total) + " files processed.");
+                            updateProgress (progress);
+                        });
+                    },
+                    &wasCancelled);
+
+                juce::MessageManager::callAsync ([this, cacheData, wasCancelled]()
+                {
+                    stateStore.setCacheData (cacheData);
+                    if (wasCancelled)
+                    {
+                        updateStatusText ("Recache cancelled. Cached " + juce::String (cacheData.entries.size()) + " files so far.");
+                    }
+                    else
+                    {
+                        AudioCacheStore::save (cacheData);
+                        updateStatusText ("Recached " + juce::String (cacheData.entries.size()) + " audio files.");
+                    }
+                    updateProgress (1.0f);
+                    setCachingState (false);
+                });
+            });
         });
     };
 
@@ -523,7 +571,8 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
         juce::ignoreUnused (bar);
 
     applySettingsSnapshot (stateStore.getSnapshot());
-    updateLiveModeState();
+    setCachingState (stateStore.getSnapshot().isCaching);
+    updateSourceModeState();
 }
 
 MainTabView::~MainTabView()
@@ -617,14 +666,32 @@ void MainTabView::applySettingsSnapshot (const SliceStateStore::SliceStateSnapsh
 {
     bpmValue.setText (juce::String (snapshot.bpm, 1), juce::dontSendNotification);
 
-    subdivHalfBar.setToggleState (snapshot.subdivisionSteps == 2, juce::dontSendNotification);
+    subdivHalfBar.setToggleState (snapshot.subdivisionSteps == 8, juce::dontSendNotification);
     subdivQuarterBar.setToggleState (snapshot.subdivisionSteps == 4, juce::dontSendNotification);
-    subdivEighthNote.setToggleState (snapshot.subdivisionSteps == 8, juce::dontSendNotification);
-    subdivSixteenthNote.setToggleState (snapshot.subdivisionSteps == 16, juce::dontSendNotification);
+    subdivEighthNote.setToggleState (snapshot.subdivisionSteps == 2, juce::dontSendNotification);
+    subdivSixteenthNote.setToggleState (snapshot.subdivisionSteps == 1, juce::dontSendNotification);
+
+    subdivRandom.setToggleState (snapshot.randomSubdivisionEnabled, juce::dontSendNotification);
 
     samplesFour.setToggleState (snapshot.sampleCountSetting == 4, juce::dontSendNotification);
     samplesEight.setToggleState (snapshot.sampleCountSetting == 8, juce::dontSendNotification);
     samplesSixteen.setToggleState (snapshot.sampleCountSetting == 16, juce::dontSendNotification);
+
+    switch (snapshot.sourceMode)
+    {
+        case SliceStateStore::SourceMode::multi:
+            modeMultiFile.setToggleState (true, juce::dontSendNotification);
+            break;
+        case SliceStateStore::SourceMode::singleRandom:
+            modeSingleRandom.setToggleState (true, juce::dontSendNotification);
+            break;
+        case SliceStateStore::SourceMode::singleManual:
+            modeSingleManual.setToggleState (true, juce::dontSendNotification);
+            break;
+        case SliceStateStore::SourceMode::live:
+            modeLive.setToggleState (true, juce::dontSendNotification);
+            break;
+    }
 }
 
 void MainTabView::updateSliceSettingsFromUi()
@@ -634,13 +701,13 @@ void MainTabView::updateSliceSettingsFromUi()
 
     int subdivision = snapshot.subdivisionSteps;
     if (subdivHalfBar.getToggleState())
-        subdivision = 2;
+        subdivision = 8;
     else if (subdivQuarterBar.getToggleState())
         subdivision = 4;
     else if (subdivEighthNote.getToggleState())
-        subdivision = 8;
+        subdivision = 2;
     else if (subdivSixteenthNote.getToggleState())
-        subdivision = 16;
+        subdivision = 1;
 
     int samples = snapshot.sampleCountSetting;
     if (samplesFour.getToggleState())
@@ -684,10 +751,55 @@ void MainTabView::updateLiveModeState()
     sourceButton.setVisible (! isLive);
 }
 
+void MainTabView::updateSourceModeState()
+{
+    if (modeMultiFile.getToggleState())
+    {
+        stateStore.setSourceMode (SliceStateStore::SourceMode::multi);
+    }
+    else if (modeSingleRandom.getToggleState())
+    {
+        stateStore.setSourceMode (SliceStateStore::SourceMode::singleRandom);
+    }
+    else if (modeSingleManual.getToggleState())
+    {
+        stateStore.setSourceMode (SliceStateStore::SourceMode::singleManual);
+    }
+    else if (modeLive.getToggleState())
+    {
+        stateStore.setSourceMode (SliceStateStore::SourceMode::live);
+    }
+
+    updateLiveModeState();
+}
+
+void MainTabView::setCachingState (bool cachingState)
+{
+    isCaching.store (cachingState);
+    stateStore.setCaching (cachingState);
+
+    const bool enabled = ! cachingState;
+    modeMultiFile.setEnabled (enabled);
+    modeSingleRandom.setEnabled (enabled);
+    modeSingleManual.setEnabled (enabled);
+    modeLive.setEnabled (enabled);
+    subdivHalfBar.setEnabled (enabled);
+    subdivQuarterBar.setEnabled (enabled);
+    subdivEighthNote.setEnabled (enabled);
+    subdivSixteenthNote.setEnabled (enabled);
+    subdivRandom.setEnabled (enabled);
+    bpmValue.setEnabled (enabled);
+    samplesFour.setEnabled (enabled);
+    samplesEight.setEnabled (enabled);
+    samplesSixteen.setEnabled (enabled);
+
+    sourceButton.setButtonText (cachingState ? "Stop Cache" : "Source");
+}
+
 void MainTabView::setLiveModeSelected (bool isLive)
 {
     modeLive.setToggleState (isLive, juce::sendNotification);
-    updateLiveModeState();
+    updateSourceModeState();
 }
 
 void MainTabView::setProgress (float progress)

@@ -657,6 +657,14 @@ namespace
                 bar->setLoopState (previewPlayer.isLooping());
                 bar->setLoopHandler ([this, bar] (bool isLooping)
                 {
+                    if (stateStore.isCaching())
+                    {
+                        setStatusText ("Cannot loop during caching.");
+                        previewPlayer.setLooping (false);
+                        bar->setLoopState (false);
+                        return;
+                    }
+
                     if (isLooping)
                     {
                         const auto snapshot = stateStore.getSnapshot();
@@ -687,6 +695,12 @@ namespace
                 });
                 bar->setSliceAllHandler ([this]()
                 {
+                    if (stateStore.isCaching())
+                    {
+                        setStatusText ("Cannot slice during caching.");
+                        return;
+                    }
+
                     MutationOrchestrator orchestrator (stateStore);
                     setStatusText ("Slicing...");
 

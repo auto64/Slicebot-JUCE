@@ -1,7 +1,9 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <atomic>
 #include "SliceStateStore.h"
+#include "BackgroundWorker.h"
 
 class MainTabView final : public juce::Component
 {
@@ -47,6 +49,8 @@ private:
     void updateStatusText (const juce::String& text);
     void updateProgress (float progress);
     void updateLiveModeState();
+    void updateSourceModeState();
+    void setCachingState (bool isCaching);
 
     StyleLookAndFeel styleLookAndFeel;
     SliceStateStore& stateStore;
@@ -79,6 +83,9 @@ private:
     std::function<void(const juce::String&)> statusTextCallback;
     std::function<void(float)> progressCallback;
     std::function<void(double)> bpmChangedCallback;
+    BackgroundWorker cacheWorker;
+    std::atomic<bool> isCaching { false };
+    std::atomic<bool> cancelCache { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainTabView)
 };

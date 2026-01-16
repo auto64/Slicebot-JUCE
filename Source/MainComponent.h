@@ -19,9 +19,28 @@ public:
     void resized() override;
 
 private:
+    void refreshMidiDeviceLists();
+    void applyMidiSettings();
+    void updateSyncModeSetting();
+    void updateSyncInputSetting();
+    void updateSyncOutputSetting();
+    void updateVirtualPortsSetting();
+
     AudioEngine& audioEngine;
 
     std::unique_ptr<juce::AudioDeviceSelectorComponent> deviceSelector;
+
+    juce::Label midiSectionLabel { "midiSectionLabel", "MIDI I/O" };
+    juce::Label syncModeLabel { "syncModeLabel", "SYNC MODE" };
+    juce::ComboBox syncModeBox;
+    juce::Label syncInputLabel { "syncInputLabel", "SYNC INPUT DEVICE" };
+    juce::ComboBox syncInputBox;
+    juce::Label syncOutputLabel { "syncOutputLabel", "SYNC OUTPUT DEVICE" };
+    juce::ComboBox syncOutputBox;
+    juce::ToggleButton virtualPortsToggle { "VIRTUAL PORTS" };
+
+    juce::Array<juce::MidiDeviceInfo> midiInputDevices;
+    juce::Array<juce::MidiDeviceInfo> midiOutputDevices;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SettingsView)
 };

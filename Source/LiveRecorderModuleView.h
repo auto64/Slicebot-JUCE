@@ -38,6 +38,7 @@ private:
     void showMissingRecordingWarning();
     void showRecordingInProgressWarning();
     void applyPersistedControlState();
+    void syncMidiButtonStates();
 
     // state
     AudioEngine& audioEngine;

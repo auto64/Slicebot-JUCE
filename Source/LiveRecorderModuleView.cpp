@@ -349,14 +349,13 @@ void LiveRecorderModuleView::buttonClicked (juce::Button* b)
         }
 
         const bool enableMidi = b->getToggleState();
-        if (b == &midiInButton && enableMidi)
-            midiOutButton.setToggleState (false, juce::dontSendNotification);
-        if (b == &midiOutButton && enableMidi)
-            midiInButton.setToggleState (false, juce::dontSendNotification);
+        if (b == &midiInButton)
+            audioEngine.setRecorderMidiInEnabled (recorderIndex, enableMidi);
+        else
+            audioEngine.setRecorderMidiOutEnabled (recorderIndex, enableMidi);
 
-        const bool midiArmed =
-            midiInButton.getToggleState() || midiOutButton.getToggleState();
-        audioEngine.setRecorderMidiArmEnabled (recorderIndex, midiArmed);
+        audioEngine.saveState();
+        syncMidiButtonStates();
         return;
     }
 
@@ -572,9 +571,7 @@ void LiveRecorderModuleView::showRecordingInProgressWarning()
 
 void LiveRecorderModuleView::applyPersistedControlState()
 {
-    const bool midiArmed = audioEngine.isRecorderMidiArmEnabled (recorderIndex);
-    midiInButton.setToggleState (midiArmed, juce::dontSendNotification);
-    midiOutButton.setToggleState (false, juce::dontSendNotification);
+    syncMidiButtonStates();
     recordArmButton.setToggleState (
         audioEngine.isRecorderRecordArmEnabled (recorderIndex),
         juce::dontSendNotification);
@@ -590,6 +587,14 @@ void LiveRecorderModuleView::applyPersistedControlState()
     sliceButton.setToggleState (
         audioEngine.isRecorderIncludeInGenerationEnabled (recorderIndex),
         juce::dontSendNotification);
+}
+
+void LiveRecorderModuleView::syncMidiButtonStates()
+{
+    const bool midiInEnabled = audioEngine.isRecorderMidiInEnabled (recorderIndex);
+    const bool midiOutEnabled = audioEngine.isRecorderMidiOutEnabled (recorderIndex);
+    midiInButton.setToggleState (midiInEnabled, juce::dontSendNotification);
+    midiOutButton.setToggleState (midiOutEnabled, juce::dontSendNotification);
 }
 
 void LiveRecorderModuleView::setDeleteModuleHandler (std::function<void()> handler)
@@ -664,6 +669,7 @@ void LiveRecorderModuleView::mouseUp (const juce::MouseEvent&)
 void LiveRecorderModuleView::timerCallback()
 {
     refreshInputChannels();
+    syncMidiButtonStates();
 
     const float linearRms = audioEngine.getRecorderRms (recorderIndex);
     const float linearPeak = audioEngine.getRecorderPeak (recorderIndex);

@@ -14,6 +14,7 @@ public:
 
     void setStatusTextCallback (std::function<void(const juce::String&)> callback);
     void setProgressCallback (std::function<void(float)> callback);
+    void setBpmChangedCallback (std::function<void(double)> callback);
     void setProgress (float progress);
     void setLiveModeSelected (bool isLive);
 
@@ -77,6 +78,7 @@ private:
     std::unique_ptr<juce::FileChooser> sourceChooser;
     std::function<void(const juce::String&)> statusTextCallback;
     std::function<void(float)> progressCallback;
+    std::function<void(double)> bpmChangedCallback;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainTabView)
 };

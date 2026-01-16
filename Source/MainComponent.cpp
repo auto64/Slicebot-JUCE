@@ -10,6 +10,11 @@
 
 namespace
 {
+    constexpr const char* kVirtualOutIdentifier = "virtual:slicebot-sync-out";
+    constexpr const char* kVirtualInIdentifier = "virtual:slicebot-sync-in";
+    constexpr const char* kVirtualOutName = "SliceBot Sync Out";
+    constexpr const char* kVirtualInName = "SliceBot Sync In";
+
     class LiveModulePlaceholder final : public juce::Component
     {
     public:
@@ -922,11 +927,13 @@ namespace
     {
     public:
         ContentArea (juce::TabbedComponent& tabsToTrack,
+                     AudioEngine& audioEngineToUse,
                      SettingsView& settingsToUse,
                      SliceStateStore& stateStoreToUse,
                      PreviewChainPlayer& previewPlayerToUse,
                      juce::Component* liveContent)
             : tabs (tabsToTrack),
+              audioEngine (audioEngineToUse),
               settingsView (settingsToUse),
               persistentFrame (tabsToTrack, stateStoreToUse, previewPlayerToUse),
               mainTabView (stateStoreToUse),
@@ -945,6 +952,12 @@ namespace
             {
                 persistentFrame.setProgress (progress);
             });
+            mainTabView.setBpmChangedCallback ([this] (double bpm)
+            {
+                audioEngine.setMidiSyncBpm (bpm);
+                audioEngine.saveState();
+            });
+            audioEngine.setMidiSyncBpm (stateStoreToUse.getSnapshot().bpm);
 
             if (auto* liveContainer = dynamic_cast<LiveModuleContainer*> (liveContent))
             {
@@ -1015,6 +1028,7 @@ namespace
         }
 
         juce::TabbedComponent& tabs;
+        AudioEngine& audioEngine;
         SettingsView& settingsView;
         PersistentFrame persistentFrame;
         MainTabView mainTabView;
@@ -1039,12 +1053,189 @@ SettingsView::SettingsView (AudioEngine& engine)
             false,
             false));
 
+    syncModeBox.addItem ("Off", 1);
+    syncModeBox.addItem ("Receive", 2);
+    syncModeBox.addItem ("Send", 3);
+
+    syncModeBox.onChange = [this]()
+    {
+        updateSyncModeSetting();
+    };
+    syncInputBox.onChange = [this]()
+    {
+        updateSyncInputSetting();
+    };
+    syncOutputBox.onChange = [this]()
+    {
+        updateSyncOutputSetting();
+    };
+    virtualPortsToggle.onClick = [this]()
+    {
+        updateVirtualPortsSetting();
+    };
+
     addAndMakeVisible (*deviceSelector);
+    addAndMakeVisible (midiSectionLabel);
+    addAndMakeVisible (syncModeLabel);
+    addAndMakeVisible (syncModeBox);
+    addAndMakeVisible (syncInputLabel);
+    addAndMakeVisible (syncInputBox);
+    addAndMakeVisible (syncOutputLabel);
+    addAndMakeVisible (syncOutputBox);
+    addAndMakeVisible (virtualPortsToggle);
+
+    refreshMidiDeviceLists();
+    applyMidiSettings();
 }
 
 void SettingsView::resized()
 {
-    deviceSelector->setBounds (getLocalBounds().reduced (20));
+    auto bounds = getLocalBounds().reduced (20);
+    auto deviceArea = bounds.removeFromTop (260);
+    deviceSelector->setBounds (deviceArea);
+
+    bounds.removeFromTop (10);
+    midiSectionLabel.setBounds (bounds.removeFromTop (24));
+
+    auto row = bounds.removeFromTop (24);
+    syncModeLabel.setBounds (row.removeFromLeft (140));
+    syncModeBox.setBounds (row);
+
+    bounds.removeFromTop (6);
+    row = bounds.removeFromTop (24);
+    syncInputLabel.setBounds (row.removeFromLeft (140));
+    syncInputBox.setBounds (row);
+
+    bounds.removeFromTop (6);
+    row = bounds.removeFromTop (24);
+    syncOutputLabel.setBounds (row.removeFromLeft (140));
+    syncOutputBox.setBounds (row);
+
+    bounds.removeFromTop (6);
+    virtualPortsToggle.setBounds (bounds.removeFromTop (24));
+}
+
+void SettingsView::refreshMidiDeviceLists()
+{
+    midiInputDevices = juce::MidiInput::getAvailableDevices();
+    midiOutputDevices = juce::MidiOutput::getAvailableDevices();
+
+    if (audioEngine.getMidiVirtualPortsEnabled())
+    {
+        midiInputDevices.add ({ kVirtualInName, kVirtualInIdentifier });
+        midiOutputDevices.add ({ kVirtualOutName, kVirtualOutIdentifier });
+    }
+
+    syncInputBox.clear (juce::dontSendNotification);
+    syncOutputBox.clear (juce::dontSendNotification);
+
+    syncInputBox.addItem ("None", 1);
+    syncOutputBox.addItem ("None", 1);
+
+    int inputId = 2;
+    for (const auto& device : midiInputDevices)
+        syncInputBox.addItem (device.name, inputId++);
+
+    int outputId = 2;
+    for (const auto& device : midiOutputDevices)
+        syncOutputBox.addItem (device.name, outputId++);
+}
+
+void SettingsView::applyMidiSettings()
+{
+    const auto mode = audioEngine.getMidiSyncMode();
+    if (mode == AudioEngine::MidiSyncMode::receive)
+        syncModeBox.setSelectedId (2, juce::dontSendNotification);
+    else if (mode == AudioEngine::MidiSyncMode::send)
+        syncModeBox.setSelectedId (3, juce::dontSendNotification);
+    else
+        syncModeBox.setSelectedId (1, juce::dontSendNotification);
+
+    syncInputBox.setSelectedId (1, juce::dontSendNotification);
+    const auto inputIdentifier = audioEngine.getMidiSyncInputDeviceIdentifier();
+    for (int index = 0; index < midiInputDevices.size(); ++index)
+    {
+        if (midiInputDevices.getReference (index).identifier == inputIdentifier)
+        {
+            syncInputBox.setSelectedId (index + 2, juce::dontSendNotification);
+            break;
+        }
+    }
+
+    syncOutputBox.setSelectedId (1, juce::dontSendNotification);
+    const auto outputIdentifier = audioEngine.getMidiSyncOutputDeviceIdentifier();
+    for (int index = 0; index < midiOutputDevices.size(); ++index)
+    {
+        if (midiOutputDevices.getReference (index).identifier == outputIdentifier)
+        {
+            syncOutputBox.setSelectedId (index + 2, juce::dontSendNotification);
+            break;
+        }
+    }
+
+    virtualPortsToggle.setToggleState (audioEngine.getMidiVirtualPortsEnabled(), juce::dontSendNotification);
+}
+
+void SettingsView::updateSyncModeSetting()
+{
+    const int selected = syncModeBox.getSelectedId();
+    AudioEngine::MidiSyncMode mode = AudioEngine::MidiSyncMode::off;
+    if (selected == 2)
+        mode = AudioEngine::MidiSyncMode::receive;
+    else if (selected == 3)
+        mode = AudioEngine::MidiSyncMode::send;
+
+    audioEngine.setMidiSyncMode (mode);
+    audioEngine.saveState();
+}
+
+void SettingsView::updateSyncInputSetting()
+{
+    const int selected = syncInputBox.getSelectedId();
+    if (selected <= 1)
+    {
+        audioEngine.setMidiSyncInputDeviceIdentifier ({});
+    }
+    else
+    {
+        const int index = selected - 2;
+        if (index >= 0 && index < midiInputDevices.size())
+            audioEngine.setMidiSyncInputDeviceIdentifier (midiInputDevices.getReference (index).identifier);
+    }
+
+    audioEngine.saveState();
+}
+
+void SettingsView::updateSyncOutputSetting()
+{
+    const int selected = syncOutputBox.getSelectedId();
+    if (selected <= 1)
+    {
+        audioEngine.setMidiSyncOutputDeviceIdentifier ({});
+    }
+    else
+    {
+        const int index = selected - 2;
+        if (index >= 0 && index < midiOutputDevices.size())
+            audioEngine.setMidiSyncOutputDeviceIdentifier (midiOutputDevices.getReference (index).identifier);
+    }
+
+    audioEngine.saveState();
+}
+
+void SettingsView::updateVirtualPortsSetting()
+{
+    audioEngine.setMidiVirtualPortsEnabled (virtualPortsToggle.getToggleState());
+    if (! audioEngine.getMidiVirtualPortsEnabled())
+    {
+        if (audioEngine.getMidiSyncInputDeviceIdentifier() == kVirtualInIdentifier)
+            audioEngine.setMidiSyncInputDeviceIdentifier ({});
+        if (audioEngine.getMidiSyncOutputDeviceIdentifier() == kVirtualOutIdentifier)
+            audioEngine.setMidiSyncOutputDeviceIdentifier ({});
+    }
+    refreshMidiDeviceLists();
+    applyMidiSettings();
+    audioEngine.saveState();
 }
 
 // =======================
@@ -1086,6 +1277,7 @@ MainComponent::MainComponent (AudioEngine& engine)
     addAndMakeVisible (tabs);
 
     auto* contentArea = new ContentArea (tabs,
+                                         audioEngine,
                                          settingsView,
                                          stateStore,
                                          previewChainPlayer,

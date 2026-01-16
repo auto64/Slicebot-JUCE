@@ -221,7 +221,9 @@ namespace
         public:
             juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override
             {
-                return juce::Font ("Helvetica", juce::jmin (11.0f, buttonHeight * 0.5f), juce::Font::plain);
+                return juce::Font (juce::FontOptions ("Helvetica",
+                                                      juce::jmin (11.0f, buttonHeight * 0.5f),
+                                                      juce::Font::plain));
             }
 
             void drawButtonBackground (juce::Graphics& g,
@@ -354,12 +356,12 @@ MainTabView::StyleLookAndFeel::StyleLookAndFeel (float fontSizeToUse)
 
 juce::Font MainTabView::StyleLookAndFeel::getTextButtonFont (juce::TextButton&, int)
 {
-    return juce::Font ("Helvetica", fontSize, juce::Font::plain);
+    return juce::Font (juce::FontOptions ("Helvetica", fontSize, juce::Font::plain));
 }
 
 juce::Font MainTabView::StyleLookAndFeel::getLabelFont (juce::Label&)
 {
-    return juce::Font ("Helvetica", fontSize, juce::Font::plain);
+    return juce::Font (juce::FontOptions ("Helvetica", fontSize, juce::Font::plain));
 }
 
 void MainTabView::StyleLookAndFeel::drawButtonBackground (juce::Graphics& g,
@@ -397,7 +399,7 @@ void MainTabView::StyleLookAndFeel::drawToggleButton (juce::Graphics& g,
     g.drawRect (boxBounds);
 
     g.setColour (button.findColour (juce::ToggleButton::textColourId));
-    g.setFont (juce::Font ("Helvetica", fontSize, juce::Font::plain));
+    g.setFont (juce::Font (juce::FontOptions ("Helvetica", fontSize, juce::Font::plain)));
     g.drawText (button.getButtonText(),
                 bounds.withTrimmedLeft (boxBounds.getRight() + 8),
                 juce::Justification::centredLeft,
@@ -654,6 +656,10 @@ void MainTabView::updateSliceSettingsFromUi()
                                  subdivision,
                                  samples,
                                  snapshot.transientDetectionEnabled);
+    bpmValue.setText (juce::String (safeBpm, 1), juce::dontSendNotification);
+
+    if (bpmChangedCallback)
+        bpmChangedCallback (safeBpm);
 }
 
 void MainTabView::updateStatusText (const juce::String& text)
@@ -700,4 +706,9 @@ void MainTabView::setStatusTextCallback (std::function<void(const juce::String&)
 void MainTabView::setProgressCallback (std::function<void(float)> callback)
 {
     progressCallback = std::move (callback);
+}
+
+void MainTabView::setBpmChangedCallback (std::function<void(double)> callback)
+{
+    bpmChangedCallback = std::move (callback);
 }

@@ -6,13 +6,21 @@
 #include "RecordingBus.h"
 #include "RecordingModule.h"
 
-class AudioEngine final : public juce::AudioIODeviceCallback
+class AudioEngine final : public juce::AudioIODeviceCallback,
+                          private juce::HighResolutionTimer
 {
 public:
     enum class UiSound
     {
         Cowbell,
         Bleep
+    };
+
+    enum class MidiSyncMode
+    {
+        off = 0,
+        receive = 1,
+        send = 2
     };
 
     struct ActiveInputChannel
@@ -38,6 +46,24 @@ public:
     juce::StringArray getInputChannelNames() const;
     juce::Array<ActiveInputChannel> getActiveInputChannels() const;
 
+    // midi sync
+    void setMidiSyncMode (MidiSyncMode mode);
+    MidiSyncMode getMidiSyncMode() const;
+    void setMidiSyncInputDeviceIdentifier (const juce::String& identifier);
+    void setMidiSyncOutputDeviceIdentifier (const juce::String& identifier);
+    juce::String getMidiSyncInputDeviceIdentifier() const;
+    juce::String getMidiSyncOutputDeviceIdentifier() const;
+    void setMidiVirtualPortsEnabled (bool enabled);
+    bool getMidiVirtualPortsEnabled() const;
+    void setMidiSyncBpm (double bpm);
+    double getMidiSyncBpm() const;
+
+    void setRecorderMidiInEnabled (int index, bool enabled);
+    void setRecorderMidiOutEnabled (int index, bool enabled);
+    bool isRecorderMidiInEnabled (int index) const;
+    bool isRecorderMidiOutEnabled (int index) const;
+    int getTransportMasterRecorderIndex() const;
+
     // recorder control
     void armRecorder (int index);
     RecordingModule::StopResult confirmStopRecorder (int index);
@@ -50,7 +76,6 @@ public:
     void setRecorderInputChannel (int index, int physicalChannel);
     void setRecorderLatchEnabled (int index, bool enabled);
     void setRecorderIncludeInGenerationEnabled (int index, bool enabled);
-    void setRecorderMidiArmEnabled (int index, bool enabled);
     void setRecorderRecordArmEnabled (int index, bool enabled);
     void setRecorderLocked (int index, bool locked);
     void setRecorderInputGainDb (int index, float gainDb);
@@ -65,7 +90,6 @@ public:
     bool isRecorderMonitoringEnabled (int index) const;
     bool isRecorderLatchEnabled (int index) const;
     bool isRecorderIncludeInGenerationEnabled (int index) const;
-    bool isRecorderMidiArmEnabled (int index) const;
     bool isRecorderRecordArmEnabled (int index) const;
     bool isRecorderLocked (int index) const;
     bool isRecorderArmed (int index) const;
@@ -102,6 +126,14 @@ public:
         const juce::AudioIODeviceCallbackContext&) override;
 
 private:
+    void hiResTimerCallback() override;
+    void updateMidiClockState();
+    void openMidiOutputDevice();
+    void closeMidiOutputDevice();
+    juce::MidiOutput* getActiveMidiOutput() const;
+    void sendMidiStart();
+    void sendMidiStop();
+
     juce::AudioDeviceManager deviceManager;
     RecordingBus recordingBus;
 
@@ -122,10 +154,15 @@ private:
     {
         true, true, true, true
     };
-    std::array<bool, RecordingBus::kNumRecorders> recorderMidiArmEnabled
+    std::array<bool, RecordingBus::kNumRecorders> recorderMidiInEnabled
     {
         false, false, false, false
     };
+    std::array<bool, RecordingBus::kNumRecorders> recorderMidiOutEnabled
+    {
+        false, false, false, false
+    };
+    int transportMasterRecorderIndex = -1;
     std::array<bool, RecordingBus::kNumRecorders> recorderRecordArmEnabled
     {
         true, true, true, true
@@ -138,6 +175,20 @@ private:
     {
         0.0f, 0.0f, 0.0f, 0.0f
     };
+
+    MidiSyncMode midiSyncMode = MidiSyncMode::off;
+    juce::String midiSyncInputDeviceIdentifier;
+    juce::String midiSyncOutputDeviceIdentifier;
+#if JUCE_MAC
+    bool midiVirtualPortsEnabled = true;
+#else
+    bool midiVirtualPortsEnabled = false;
+#endif
+    double midiSyncBpm = 120.0;
+    bool midiClockRunning = false;
+    juce::String activeMidiOutputIdentifier;
+    std::unique_ptr<juce::MidiOutput> midiOutput;
+    std::unique_ptr<juce::MidiOutput> midiVirtualOutput;
 
     juce::AudioFormatManager soundFormatManager;
     juce::AudioBuffer<float> bleepBuffer;

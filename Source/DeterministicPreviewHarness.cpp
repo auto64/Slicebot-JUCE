@@ -217,7 +217,7 @@ bool DeterministicPreviewHarness::buildDeterministicSlices()
 
         pendingSliceInfos.push_back (info);
         pendingPreviewSnippetURLs.push_back (outputFile);
-        pendingSliceVolumeSettings.push_back (1.0f);
+        pendingSliceVolumeSettings.push_back ({ 0.75f, false });
     }
 
     if (flags.layeringMode && static_cast<int> (pendingSliceInfos.size()) != targetSlices)

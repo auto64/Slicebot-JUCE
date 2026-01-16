@@ -1,9 +1,79 @@
 #include "ExportOrchestrator.h"
 
 #include "AudioFileIO.h"
+#include <cmath>
 
 namespace {
     constexpr int kDefaultExportRetries = 3;
+    constexpr float kDefaultVolume = 0.75f;
+
+    float sliderValueToDb (float value)
+    {
+        if (value <= 0.75f)
+            return (40.0f / 0.75f) * value - 40.0f;
+
+        return 32.0f * value - 24.0f;
+    }
+
+    float dbToLinear (float db)
+    {
+        return std::pow (10.0f, db / 20.0f);
+    }
+
+    float volumeSettingToGain (const SliceStateStore::SliceVolumeSetting& setting)
+    {
+        if (setting.isMuted)
+            return 0.0f;
+
+        return dbToLinear (sliderValueToDb (setting.volume));
+    }
+
+    int nextAvailableExportNumber (const juce::String& prefix, const juce::File& directory)
+    {
+        if (! directory.isDirectory())
+            return 1;
+
+        int maxNumber = 0;
+        juce::Array<juce::File> files;
+        directory.findChildFiles (files, juce::File::findFiles, false);
+
+        for (const auto& file : files)
+        {
+            const auto name = file.getFileName();
+            if (! name.startsWith (prefix + "_"))
+                continue;
+
+            auto numberPart = name.fromFirstOccurrenceOf (prefix + "_", false, false);
+            if (numberPart.contains ("_chain"))
+                numberPart = numberPart.upToFirstOccurrenceOf ("_chain", false, false);
+            if (numberPart.containsChar ('.'))
+                numberPart = numberPart.upToFirstOccurrenceOf (".", false, false);
+
+            const int number = numberPart.getIntValue();
+            if (number > maxNumber)
+                maxNumber = number;
+        }
+
+        return maxNumber + 1;
+    }
+
+    bool exportSnippetWithVolume (const juce::File& sourceFile,
+                                  float gain,
+                                  const juce::File& destinationFile,
+                                  AudioFileIO& audioFileIO)
+    {
+        if (! sourceFile.existsAsFile())
+            return false;
+
+        AudioFileIO::ConvertedAudio converted;
+        juce::String formatDescription;
+        if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
+            return false;
+
+        converted.buffer.applyGain (gain);
+
+        return audioFileIO.writeMonoWav16 (destinationFile, converted);
+    }
 }
 
 ExportOrchestrator::ExportOrchestrator (SliceStateStore& store)
@@ -22,7 +92,7 @@ bool ExportOrchestrator::exportSlices (const std::optional<SliceStateStore::Expo
     if (previewSnippetURLs.empty())
         return false;
 
-    const juce::File destinationDirectory = settings.sliceExportDirectory;
+    const juce::File destinationDirectory = settings.exportDirectory;
     if (destinationDirectory == juce::File())
         return false;
 
@@ -31,6 +101,10 @@ bool ExportOrchestrator::exportSlices (const std::optional<SliceStateStore::Expo
 
     const int retryCount = settings.sliceExportRetryCount > 0 ? settings.sliceExportRetryCount : kDefaultExportRetries;
     bool exportedAny = false;
+    AudioFileIO audioFileIO;
+    const auto& sliceVolumeSettings = snapshot.sliceVolumeSettings;
+    const int startingNumber = nextAvailableExportNumber (settings.exportPrefix, destinationDirectory);
+    int exportNumber = startingNumber;
 
     for (std::size_t index = 0; index < previewSnippetURLs.size(); ++index)
     {
@@ -39,12 +113,16 @@ bool ExportOrchestrator::exportSlices (const std::optional<SliceStateStore::Expo
             continue;
 
         const juce::File destinationFile =
-            destinationDirectory.getChildFile ("slice_" + juce::String (static_cast<int> (index)) + ".wav");
+            destinationDirectory.getChildFile (settings.exportPrefix
+                                               + "_" + juce::String (exportNumber) + ".wav");
 
         bool success = false;
         for (int attempt = 0; attempt < retryCount; ++attempt)
         {
-            if (sourceFile.copyFileTo (destinationFile))
+            const auto setting = index < sliceVolumeSettings.size()
+                                     ? sliceVolumeSettings[index]
+                                     : SliceStateStore::SliceVolumeSetting { kDefaultVolume, false };
+            if (exportSnippetWithVolume (sourceFile, volumeSettingToGain (setting), destinationFile, audioFileIO))
             {
                 success = true;
                 break;
@@ -53,6 +131,8 @@ bool ExportOrchestrator::exportSlices (const std::optional<SliceStateStore::Expo
 
         if (success)
             exportedAny = true;
+
+        exportNumber += 1;
     }
 
     return exportedAny;
@@ -69,9 +149,17 @@ bool ExportOrchestrator::exportFullChainWithoutVolume (const std::optional<Slice
     if (! previewChainURL.existsAsFile())
         return false;
 
-    const juce::File destinationFile = settings.chainExportFile;
-    if (destinationFile == juce::File())
+    const juce::File destinationDirectory = settings.exportDirectory;
+    if (destinationDirectory == juce::File())
         return false;
+
+    if (! destinationDirectory.exists())
+        destinationDirectory.createDirectory();
+
+    const int exportNumber = nextAvailableExportNumber (settings.exportPrefix, destinationDirectory);
+    const juce::File destinationFile =
+        destinationDirectory.getChildFile (settings.exportPrefix
+                                           + "_" + juce::String (exportNumber) + "_chain.wav");
 
     return previewChainURL.copyFileTo (destinationFile);
 }
@@ -86,22 +174,19 @@ bool ExportOrchestrator::exportFullChainWithVolume (const std::optional<SliceSta
     if (snapshot.previewSnippetURLs.empty())
         return false;
 
-    juce::File loopChainFile = snapshot.previewChainURL;
-    if (loopChainFile == juce::File())
-        loopChainFile = snapshot.previewSnippetURLs.front().getSiblingFile ("loop_chain.wav");
-    else
-        loopChainFile = loopChainFile.getSiblingFile ("loop_chain.wav");
-
-    if (! buildVolumeChain (snapshot, loopChainFile))
+    const juce::File destinationDirectory = settings.exportDirectory;
+    if (destinationDirectory == juce::File())
         return false;
 
-    stateStore.setPreviewChainURL (loopChainFile);
+    if (! destinationDirectory.exists())
+        destinationDirectory.createDirectory();
 
-    const juce::File destinationFile = settings.chainExportFile;
-    if (destinationFile == juce::File())
-        return false;
+    const int exportNumber = nextAvailableExportNumber (settings.exportPrefix, destinationDirectory);
+    const juce::File destinationFile =
+        destinationDirectory.getChildFile (settings.exportPrefix
+                                           + "_" + juce::String (exportNumber) + "_chain.wav");
 
-    return loopChainFile.copyFileTo (destinationFile);
+    return buildVolumeChain (snapshot, destinationFile);
 }
 
 bool ExportOrchestrator::resolveSettings (const std::optional<SliceStateStore::ExportSettings>& overrideSettings,
@@ -127,7 +212,7 @@ bool ExportOrchestrator::buildVolumeChain (const SliceStateStore::SliceStateSnap
     const auto& previewSnippetURLs = snapshot.previewSnippetURLs;
     const auto& sliceVolumeSettings = snapshot.sliceVolumeSettings;
 
-    if (previewSnippetURLs.empty() || previewSnippetURLs.size() != sliceVolumeSettings.size())
+    if (previewSnippetURLs.empty())
         return false;
 
     AudioFileIO audioFileIO;
@@ -147,7 +232,10 @@ bool ExportOrchestrator::buildVolumeChain (const SliceStateStore::SliceStateSnap
         if (! audioFileIO.readToMonoBuffer (snippetFile, converted, formatDescription))
             continue;
 
-        converted.buffer.applyGain (sliceVolumeSettings[index]);
+        const auto setting = index < sliceVolumeSettings.size()
+                                 ? sliceVolumeSettings[index]
+                                 : SliceStateStore::SliceVolumeSetting { kDefaultVolume, false };
+        converted.buffer.applyGain (volumeSettingToGain (setting));
         totalSamples += converted.buffer.getNumSamples();
         snippetBuffers.push_back (std::move (converted.buffer));
     }

@@ -33,7 +33,7 @@ private:
 
     std::vector<SliceStateStore::SliceInfo> pendingSliceInfos;
     std::vector<juce::File> pendingPreviewSnippetURLs;
-    std::vector<float> pendingSliceVolumeSettings;
+    std::vector<SliceStateStore::SliceVolumeSetting> pendingSliceVolumeSettings;
 
     juce::File previewChainFile;
 

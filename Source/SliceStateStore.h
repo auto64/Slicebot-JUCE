@@ -33,10 +33,18 @@ public:
         int snippetFrameCount = 0;
     };
 
+    struct SliceVolumeSetting
+    {
+        float volume = 0.75f;
+        bool isMuted = false;
+    };
+
     struct ExportSettings
     {
-        juce::File sliceExportDirectory;
-        juce::File chainExportFile;
+        juce::File exportDirectory;
+        juce::String exportPrefix = "export";
+        bool generateIndividual = true;
+        bool generateChain = true;
         int sliceExportRetryCount = 3;
     };
 
@@ -54,7 +62,7 @@ public:
         bool isCaching = false;
         std::vector<SliceInfo> sliceInfos;
         std::vector<juce::File> previewSnippetURLs;
-        std::vector<float> sliceVolumeSettings;
+        std::vector<SliceVolumeSetting> sliceVolumeSettings;
         juce::File previewChainURL;
         bool layeringMode = false;
         int sampleCount = 0;
@@ -86,11 +94,11 @@ public:
 
     void setAlignedSlices (std::vector<SliceInfo> newSliceInfos,
                            std::vector<juce::File> newPreviewSnippetURLs,
-                           std::vector<float> newSliceVolumeSettings);
+                           std::vector<SliceVolumeSetting> newSliceVolumeSettings);
 
     void replaceAllState (std::vector<SliceInfo> newSliceInfos,
                           std::vector<juce::File> newPreviewSnippetURLs,
-                          std::vector<float> newSliceVolumeSettings,
+                          std::vector<SliceVolumeSetting> newSliceVolumeSettings,
                           juce::File newPreviewChainURL);
 
     void setPreviewChainURL (juce::File newPreviewChainURL);
@@ -112,7 +120,7 @@ public:
 private:
     void enforceAlignmentOrAssert (const std::vector<SliceInfo>& newSliceInfos,
                                    const std::vector<juce::File>& newPreviewSnippetURLs,
-                                   const std::vector<float>& newSliceVolumeSettings) const;
+                                   const std::vector<SliceVolumeSetting>& newSliceVolumeSettings) const;
 
     mutable juce::CriticalSection stateLock;
     juce::File sourceDirectory;
@@ -127,7 +135,7 @@ private:
     bool isCachingState = false;
     std::vector<SliceInfo> sliceInfos;
     std::vector<juce::File> previewSnippetURLs;
-    std::vector<float> sliceVolumeSettings;
+    std::vector<SliceVolumeSetting> sliceVolumeSettings;
     juce::File previewChainURL;
     bool layeringMode = false;
     int sampleCount = 0;

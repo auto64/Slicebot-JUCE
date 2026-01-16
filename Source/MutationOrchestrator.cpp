@@ -527,7 +527,7 @@ bool MutationOrchestrator::requestSliceAll()
 
         std::vector<SliceStateStore::SliceInfo> sliceInfos;
         std::vector<juce::File> previewSnippetURLs;
-        std::vector<float> sliceVolumeSettings;
+        std::vector<SliceStateStore::SliceVolumeSetting> sliceVolumeSettings;
         sliceInfos.reserve (static_cast<std::size_t> (targetCount));
         previewSnippetURLs.reserve (static_cast<std::size_t> (targetCount));
         sliceVolumeSettings.reserve (static_cast<std::size_t> (targetCount));
@@ -714,7 +714,7 @@ bool MutationOrchestrator::requestSliceAll()
 
                 sliceInfos.push_back (info);
                 previewSnippetURLs.push_back (outputFile);
-                sliceVolumeSettings.push_back (1.0f);
+                sliceVolumeSettings.push_back ({ 0.75f, false });
                 added = true;
             }
 

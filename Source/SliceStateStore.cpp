@@ -75,7 +75,7 @@ bool SliceStateStore::isCaching() const
 
 void SliceStateStore::setAlignedSlices (std::vector<SliceInfo> newSliceInfos,
                                         std::vector<juce::File> newPreviewSnippetURLs,
-                                        std::vector<float> newSliceVolumeSettings)
+                                        std::vector<SliceVolumeSetting> newSliceVolumeSettings)
 {
     enforceAlignmentOrAssert (newSliceInfos, newPreviewSnippetURLs, newSliceVolumeSettings);
 
@@ -87,7 +87,7 @@ void SliceStateStore::setAlignedSlices (std::vector<SliceInfo> newSliceInfos,
 
 void SliceStateStore::replaceAllState (std::vector<SliceInfo> newSliceInfos,
                                        std::vector<juce::File> newPreviewSnippetURLs,
-                                       std::vector<float> newSliceVolumeSettings,
+                                       std::vector<SliceVolumeSetting> newSliceVolumeSettings,
                                        juce::File newPreviewChainURL)
 {
     enforceAlignmentOrAssert (newSliceInfos, newPreviewSnippetURLs, newSliceVolumeSettings);
@@ -178,7 +178,7 @@ void SliceStateStore::setStutterUndoBackupEntry (int index, juce::File originalS
 
 void SliceStateStore::enforceAlignmentOrAssert (const std::vector<SliceInfo>& newSliceInfos,
                                                 const std::vector<juce::File>& newPreviewSnippetURLs,
-                                                const std::vector<float>& newSliceVolumeSettings) const
+                                                const std::vector<SliceVolumeSetting>& newSliceVolumeSettings) const
 {
     jassert (newSliceInfos.size() == newPreviewSnippetURLs.size());
     jassert (newSliceInfos.size() == newSliceVolumeSettings.size());

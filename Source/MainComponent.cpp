@@ -3,8 +3,10 @@
 #include "GlobalTabView.h"
 #include "AudioCacheStore.h"
 #include "MutationOrchestrator.h"
+#include "PreviewChainOrchestrator.h"
 #include "RecordingModule.h"
 #include <cmath>
+#include <optional>
 #include <vector>
 #include "AppProperties.h"
 
@@ -14,6 +16,69 @@ namespace
     constexpr const char* kVirtualInIdentifier = "virtual:slicebot-sync-in";
     constexpr const char* kVirtualOutName = "SliceBot Sync Out";
     constexpr const char* kVirtualInName = "SliceBot Sync In";
+
+    struct ExportDialogResult
+    {
+        juce::File exportDirectory;
+        juce::String exportPrefix;
+        bool generateIndividual = true;
+        bool generateChain = true;
+    };
+
+    std::optional<ExportDialogResult> promptExportOptions()
+    {
+        auto* settings = AppProperties::get().properties().getUserSettings();
+        const juce::String lastDirectory =
+            settings != nullptr ? settings->getValue ("LastExportDirectory") : juce::String();
+        const juce::File defaultDirectory = lastDirectory.isNotEmpty()
+                                                ? juce::File (lastDirectory)
+                                                : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
+
+        const juce::String lastPrefix =
+            settings != nullptr ? settings->getValue ("LastExportPrefix", "export") : "export";
+        const bool lastGenerateIndividual =
+            settings != nullptr ? settings->getBoolValue ("LastGenerateIndividual", true) : true;
+        const bool lastGenerateChain =
+            settings != nullptr ? settings->getBoolValue ("LastGenerateChain", true) : true;
+
+        juce::AlertWindow window ("Export Options",
+                                  "Set export prefix and output types.",
+                                  juce::AlertWindow::NoIcon);
+        auto* prefixEditor = window.addTextEditor ("prefix", lastPrefix, "Prefix:");
+        auto* individualToggle = window.addToggleButton ("Generate Individual Samples", lastGenerateIndividual);
+        auto* chainToggle = window.addToggleButton ("Generate Sample Chain", lastGenerateChain);
+        window.addButton ("Next", 1);
+        window.addButton ("Cancel", 0);
+
+        if (window.runModalLoop() == 0)
+            return std::nullopt;
+
+        juce::String prefix = prefixEditor != nullptr ? prefixEditor->getText().trim() : juce::String();
+        if (prefix.isEmpty())
+            prefix = "export";
+
+        const bool generateIndividual = individualToggle != nullptr && individualToggle->getToggleState();
+        const bool generateChain = chainToggle != nullptr && chainToggle->getToggleState();
+
+        juce::FileChooser chooser ("Select Export Folder", defaultDirectory, "*");
+        if (! chooser.browseForDirectory())
+            return std::nullopt;
+
+        const juce::File exportDirectory = chooser.getResult();
+        if (exportDirectory == juce::File())
+            return std::nullopt;
+
+        if (settings != nullptr)
+        {
+            settings->setValue ("LastExportDirectory", exportDirectory.getFullPathName());
+            settings->setValue ("LastExportPrefix", prefix);
+            settings->setValue ("LastGenerateIndividual", generateIndividual);
+            settings->setValue ("LastGenerateChain", generateChain);
+            AppProperties::get().properties().saveIfNeeded();
+        }
+
+        return ExportDialogResult { exportDirectory, prefix, generateIndividual, generateChain };
+    }
 
     class LiveModulePlaceholder final : public juce::Component
     {
@@ -477,6 +542,11 @@ namespace
             sliceAllButton.onClick = std::move (handler);
         }
 
+        void setExportHandler (std::function<void()> handler)
+        {
+            exportButton.onClick = std::move (handler);
+        }
+
         void setLoopHandler (std::function<void(bool)> handler)
         {
             loopButton.onClick = [this, handler = std::move (handler)]()
@@ -667,6 +737,15 @@ namespace
 
                     if (isLooping)
                     {
+                        PreviewChainOrchestrator previewChain (stateStore);
+                        if (! previewChain.rebuildLoopChainWithVolume())
+                        {
+                            setStatusText ("Preview loop failed.");
+                            previewPlayer.setLooping (false);
+                            bar->setLoopState (false);
+                            return;
+                        }
+
                         const auto snapshot = stateStore.getSnapshot();
                         if (! snapshot.previewChainURL.existsAsFile())
                         {
@@ -675,7 +754,6 @@ namespace
                             bar->setLoopState (false);
                             return;
                         }
-
                         previewPlayer.setLooping (true);
                         if (! previewPlayer.startPlayback (snapshot.previewChainURL, true))
                         {
@@ -719,6 +797,38 @@ namespace
                     }
 
                     setStatusText ("Slice all complete.");
+                });
+                bar->setExportHandler ([this]()
+                {
+                    const auto options = promptExportOptions();
+                    if (! options.has_value())
+                    {
+                        setStatusText ("Export cancelled.");
+                        return;
+                    }
+
+                    if (! options->generateIndividual && ! options->generateChain)
+                    {
+                        setStatusText ("No export options selected.");
+                        return;
+                    }
+
+                    SliceStateStore::ExportSettings exportSettings;
+                    exportSettings.exportDirectory = options->exportDirectory;
+                    exportSettings.exportPrefix = options->exportPrefix;
+                    exportSettings.generateIndividual = options->generateIndividual;
+                    exportSettings.generateChain = options->generateChain;
+
+                    MutationOrchestrator orchestrator (stateStore);
+                    bool exportOk = false;
+
+                    if (options->generateIndividual)
+                        exportOk |= orchestrator.requestExportSlices (exportSettings);
+
+                    if (options->generateChain)
+                        exportOk |= orchestrator.requestExportFullChainWithVolume (exportSettings);
+
+                    setStatusText (exportOk ? "Export complete." : "Export failed.");
                 });
             }
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <juce_core/juce_core.h>
+#include <juce_audio_basics/juce_audio_basics.h>
 #include <array>
 
 #include "RecordingModule.h"
@@ -15,7 +15,7 @@ public:
     // =====================================================
     // DEVICE LIFECYCLE
     // =====================================================
-    void prepare (double sampleRate);
+    void prepare (double sampleRate, int bufferSize);
 
     // =====================================================
     // RECORD CONTROL
@@ -32,6 +32,25 @@ public:
     bool isRecorderArmed (int index) const;
     void setRecorderLatchEnabled (int index, bool enabled);
     bool isRecorderLatchEnabled (int index) const;
+    void setRecorderRecordArmEnabled (int index, bool enabled);
+    bool isRecorderRecordArmEnabled (int index) const;
+
+    bool startPlayback (int index);
+    void stopPlayback (int index);
+    bool isRecorderPlaying (int index) const;
+    bool startLatchedPlayback();
+    void stopLatchedPlayback();
+
+    double getRecorderPlaybackProgress (int index) const;
+    void seekRecorderPlayback (int index, double progress);
+    double getRecorderRecordStartMs (int index) const;
+    int getRecorderTotalSamples (int index) const;
+    int getRecorderMaxSamples (int index) const;
+
+    void setRecorderInputGainDb (int index, float gainDb);
+    float getRecorderInputGainDb (int index) const;
+    float getRecorderRms (int index) const;
+    float getRecorderPeak (int index) const;
 
     // =====================================================
     // ROUTING
@@ -61,10 +80,24 @@ private:
         bool armed             = false;
         bool monitoringEnabled = false;
         bool latchEnabled      = false;
+        bool recordArmEnabled  = true;
+
+        bool playing = false;
+        juce::int64 playbackPosition = 0;
+        double recordStartMs = 0.0;
+
+        float inputGainDb = 0.0f;
+        float inputGainLinear = 1.0f;
+        float rms = 0.0f;
+        float peak = 0.0f;
+
+        juce::AudioBuffer<float> inputBuffer;
+        juce::AudioBuffer<float> playbackBuffer;
     };
 
     std::array<RecorderSlot, kNumRecorders> recorders;
     double sampleRate = 0.0;
+    int bufferSize = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RecordingBus)
 };

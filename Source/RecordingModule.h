@@ -33,6 +33,13 @@ public:
                   int numSamples);
 
     double getCurrentPassSeconds() const;
+    int getTotalSamples() const;
+    int getMaxSamples() const;
+    double getSampleRate() const;
+
+    int readPlaybackSamples (float* dest,
+                             int startSample,
+                             int numSamples) const;
     void clear();
 
 private:

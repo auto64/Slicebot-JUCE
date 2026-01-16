@@ -31,6 +31,7 @@ void RecordingModule::prepareDevice (double sr,
             1,
             sampleRate,
             file);
+        writer->loadFromDisk();
     }
     else
     {
@@ -109,6 +110,37 @@ double RecordingModule::getCurrentPassSeconds() const
         return 0.0;
 
     return static_cast<double> (writer->getPassSamples()) / sampleRate;
+}
+
+int RecordingModule::getTotalSamples() const
+{
+    if (! writer)
+        return 0;
+
+    return writer->getTotalSamples();
+}
+
+int RecordingModule::getMaxSamples() const
+{
+    if (! writer)
+        return 0;
+
+    return writer->getMaxSamples();
+}
+
+double RecordingModule::getSampleRate() const
+{
+    return sampleRate;
+}
+
+int RecordingModule::readPlaybackSamples (float* dest,
+                                          int startSample,
+                                          int numSamples) const
+{
+    if (! writer)
+        return 0;
+
+    return writer->readSamples (dest, startSample, numSamples);
 }
 
 void RecordingModule::clear()

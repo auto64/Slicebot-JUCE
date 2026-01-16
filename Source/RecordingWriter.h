@@ -22,12 +22,18 @@ public:
     bool isFull() const;
     int  getTotalSamples() const;
     int  getPassSamples() const;
+    int  getMaxSamples() const;
 
     void write (const float* const* input,
                 int numChannels,
                 int numSamples);
 
     bool writeToDisk();
+    bool loadFromDisk();
+
+    int readSamples (float* dest,
+                     int startSample,
+                     int numSamples) const;
 
     void clear();
 

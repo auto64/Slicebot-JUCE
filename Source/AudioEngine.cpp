@@ -1,6 +1,47 @@
 #include "AudioEngine.h"
 #include "AppProperties.h"
 
+namespace
+{
+    juce::File findSoundFile (const juce::String& name)
+    {
+        auto cwd = juce::File::getCurrentWorkingDirectory();
+        for (int i = 0; i < 6; ++i)
+        {
+            auto candidate = cwd.getChildFile ("SWIFT V3 FILES")
+                                .getChildFile ("SLICEBOT_LIVE_V3")
+                                .getChildFile (name);
+            if (candidate.existsAsFile())
+                return candidate;
+            cwd = cwd.getParentDirectory();
+        }
+        return {};
+    }
+
+    bool loadSoundFile (juce::AudioFormatManager& manager,
+                        const juce::File& file,
+                        juce::AudioBuffer<float>& buffer)
+    {
+        if (! file.existsAsFile())
+            return false;
+
+        auto reader = std::unique_ptr<juce::AudioFormatReader> (
+            manager.createReaderFor (file));
+        if (! reader)
+            return false;
+
+        buffer.setSize (static_cast<int> (reader->numChannels),
+                        static_cast<int> (reader->lengthInSamples));
+        reader->read (&buffer,
+                      0,
+                      static_cast<int> (reader->lengthInSamples),
+                      0,
+                      true,
+                      true);
+        return true;
+    }
+}
+
 // =====================================================
 // CONSTRUCTION / DESTRUCTION
 // =====================================================
@@ -54,15 +95,24 @@ void AudioEngine::restoreState()
             const juce::String prefix = "recorder_" + juce::String (index) + "_";
             const int inputChannel = settings->getIntValue (prefix + "inputChannel", -1);
             const bool includeEnabled = settings->getBoolValue (prefix + "includeInGeneration", true);
+            const bool recordArmEnabled = settings->getBoolValue (prefix + "recordArmEnabled", true);
+            const bool locked = settings->getBoolValue (prefix + "locked", false);
+            const float gainDb = static_cast<float> (
+                settings->getDoubleValue (prefix + "inputGainDb", 0.0));
 
             recorderPhysicalChannels[index] = inputChannel;
             recorderIncludeInGeneration[index] = includeEnabled;
             recorderMonitoringEnabled[index] = false;
             recorderLatchEnabled[index] = false;
             recorderMidiArmEnabled[index] = false;
+            recorderRecordArmEnabled[index] = recordArmEnabled;
+            recorderLocked[index] = locked;
+            recorderInputGainDb[index] = gainDb;
 
             recordingBus.setRecorderMonitoringEnabled (index, false);
             recordingBus.setRecorderLatchEnabled (index, false);
+            recordingBus.setRecorderRecordArmEnabled (index, recordArmEnabled);
+            recordingBus.setRecorderInputGainDb (index, gainDb);
         }
     }
 }
@@ -80,6 +130,9 @@ void AudioEngine::saveState()
             settings->setValue (prefix + "monitoringEnabled", false);
             settings->setValue (prefix + "latchEnabled", false);
             settings->setValue (prefix + "midiArmEnabled", false);
+            settings->setValue (prefix + "recordArmEnabled", recorderRecordArmEnabled[index]);
+            settings->setValue (prefix + "locked", recorderLocked[index]);
+            settings->setValue (prefix + "inputGainDb", recorderInputGainDb[index]);
         }
     }
 }
@@ -158,11 +211,26 @@ void AudioEngine::clearRecorder (int index)
     recorderLatchEnabled[index] = false;
     recorderIncludeInGeneration[index] = true;
     recorderMidiArmEnabled[index] = false;
+    recorderRecordArmEnabled[index] = true;
+    recorderLocked[index] = false;
+    recorderInputGainDb[index] = 0.0f;
 
     recordingBus.setRecorderMonitoringEnabled (index, false);
     recordingBus.setRecorderLatchEnabled (index, false);
+    recordingBus.setRecorderRecordArmEnabled (index, true);
+    recordingBus.setRecorderInputGainDb (index, 0.0f);
 
     saveState();
+}
+
+bool AudioEngine::startPlayback (int index)
+{
+    return recordingBus.startPlayback (index);
+}
+
+void AudioEngine::stopPlayback (int index)
+{
+    recordingBus.stopPlayback (index);
 }
 
 void AudioEngine::setRecorderMonitoringEnabled (int index, bool enabled)
@@ -203,6 +271,33 @@ void AudioEngine::setRecorderMidiArmEnabled (int index, bool enabled)
     recorderMidiArmEnabled[index] = enabled;
 }
 
+void AudioEngine::setRecorderRecordArmEnabled (int index, bool enabled)
+{
+    if (index < 0 || index >= RecordingBus::kNumRecorders)
+        return;
+
+    recorderRecordArmEnabled[index] = enabled;
+    recordingBus.setRecorderRecordArmEnabled (index, enabled);
+}
+
+void AudioEngine::setRecorderLocked (int index, bool locked)
+{
+    if (index < 0 || index >= RecordingBus::kNumRecorders)
+        return;
+
+    recorderLocked[index] = locked;
+}
+
+void AudioEngine::setRecorderInputGainDb (int index, float gainDb)
+{
+    if (index < 0 || index >= RecordingBus::kNumRecorders)
+        return;
+
+    const float clamped = juce::jlimit (-60.0f, 6.0f, gainDb);
+    recorderInputGainDb[index] = clamped;
+    recordingBus.setRecorderInputGainDb (index, clamped);
+}
+
 bool AudioEngine::hasLatchedRecorders() const
 {
     return recordingBus.hasLatchedRecorders();
@@ -216,6 +311,16 @@ void AudioEngine::armLatchedRecorders()
 RecordingModule::StopResult AudioEngine::stopLatchedRecorders()
 {
     return recordingBus.stopLatchedRecorders();
+}
+
+bool AudioEngine::startLatchedPlayback()
+{
+    return recordingBus.startLatchedPlayback();
+}
+
+void AudioEngine::stopLatchedPlayback()
+{
+    recordingBus.stopLatchedPlayback();
 }
 
 int AudioEngine::getRecorderInputChannel (int index) const
@@ -258,9 +363,73 @@ bool AudioEngine::isRecorderMidiArmEnabled (int index) const
     return recorderMidiArmEnabled[index];
 }
 
+bool AudioEngine::isRecorderRecordArmEnabled (int index) const
+{
+    if (index < 0 || index >= RecordingBus::kNumRecorders)
+        return false;
+
+    return recorderRecordArmEnabled[index];
+}
+
+bool AudioEngine::isRecorderLocked (int index) const
+{
+    if (index < 0 || index >= RecordingBus::kNumRecorders)
+        return false;
+
+    return recorderLocked[index];
+}
+
 bool AudioEngine::isRecorderArmed (int index) const
 {
     return recordingBus.isRecorderArmed (index);
+}
+
+bool AudioEngine::isRecorderPlaying (int index) const
+{
+    return recordingBus.isRecorderPlaying (index);
+}
+
+float AudioEngine::getRecorderInputGainDb (int index) const
+{
+    if (index < 0 || index >= RecordingBus::kNumRecorders)
+        return 0.0f;
+
+    return recorderInputGainDb[index];
+}
+
+float AudioEngine::getRecorderRms (int index) const
+{
+    return recordingBus.getRecorderRms (index);
+}
+
+float AudioEngine::getRecorderPeak (int index) const
+{
+    return recordingBus.getRecorderPeak (index);
+}
+
+double AudioEngine::getRecorderPlaybackProgress (int index) const
+{
+    return recordingBus.getRecorderPlaybackProgress (index);
+}
+
+void AudioEngine::seekRecorderPlayback (int index, double progress)
+{
+    recordingBus.seekRecorderPlayback (index, progress);
+}
+
+double AudioEngine::getRecorderRecordStartMs (int index) const
+{
+    return recordingBus.getRecorderRecordStartMs (index);
+}
+
+int AudioEngine::getRecorderTotalSamples (int index) const
+{
+    return recordingBus.getRecorderTotalSamples (index);
+}
+
+int AudioEngine::getRecorderMaxSamples (int index) const
+{
+    return recordingBus.getRecorderMaxSamples (index);
 }
 
 // =====================================================
@@ -286,13 +455,42 @@ float AudioEngine::getInputPeak() const
     return inputPeak.load();
 }
 
+void AudioEngine::playUiSound (UiSound sound)
+{
+    currentSound.store (sound);
+    const int length = (sound == UiSound::Cowbell)
+                           ? cowbellBuffer.getNumSamples()
+                           : bleepBuffer.getNumSamples();
+    soundLength.store (length);
+    if (length == 0)
+        return;
+
+    soundPosition.store (0);
+}
+
 // =====================================================
 // JUCE CALLBACKS
 // =====================================================
 
 void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* device)
 {
-    recordingBus.prepare (device->getCurrentSampleRate());
+    recordingBus.prepare (device->getCurrentSampleRate(),
+                          device->getCurrentBufferSizeSamples());
+
+    if (soundFormatManager.getNumKnownFormats() == 0)
+        soundFormatManager.registerBasicFormats();
+
+    if (bleepBuffer.getNumSamples() == 0)
+    {
+        const auto file = findSoundFile ("bleep.wav");
+        loadSoundFile (soundFormatManager, file, bleepBuffer);
+    }
+
+    if (cowbellBuffer.getNumSamples() == 0)
+    {
+        const auto file = findSoundFile ("cowbell.wav");
+        loadSoundFile (soundFormatManager, file, cowbellBuffer);
+    }
 
     // DEFAULT INPUT ASSIGNMENT (RESTORED)
     const auto activeMask = device->getActiveInputChannels();
@@ -378,6 +576,29 @@ void AudioEngine::audioDeviceIOCallbackWithContext (
         output,
         numOutputChannels,
         numSamples);
+
+    const int currentPos = soundPosition.load();
+    const int length = soundLength.load();
+    if (length > 0 && currentPos < length)
+    {
+        const auto sound = currentSound.load();
+        const auto& buffer = (sound == UiSound::Cowbell) ? cowbellBuffer : bleepBuffer;
+        const int available = buffer.getNumSamples() - currentPos;
+        const int toCopy = juce::jmin (available, numSamples);
+        if (toCopy > 0)
+        {
+            for (int ch = 0; ch < numOutputChannels; ++ch)
+            {
+                const int srcChannel = juce::jmin (ch, buffer.getNumChannels() - 1);
+                juce::FloatVectorOperations::add (
+                    output[ch],
+                    buffer.getReadPointer (srcChannel, currentPos),
+                    toCopy);
+            }
+        }
+
+        soundPosition.store (currentPos + toCopy);
+    }
 
     // -------------------------------------------------
     // METERS

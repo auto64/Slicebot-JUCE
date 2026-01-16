@@ -1,37 +1,14 @@
 #include "LiveRecorderModuleView.h"
 #include "AudioEngine.h"
 #include "RecordingModule.h"
+#include <cmath>
+#include <utility>
 
 static constexpr int kModuleW = 120;
-static constexpr int kModuleH = 120;
+static constexpr int kModuleH = 150;
 static constexpr double kMinSeconds = 25.0;
-
-// =====================================================
-// DELETE BUTTON (SINGLE + DOUBLE CLICK)
-// =====================================================
-
-void LiveRecorderModuleView::DeleteButton::setSingleClickHandler (std::function<void()> handler)
-{
-    singleClickHandler = std::move (handler);
-}
-
-void LiveRecorderModuleView::DeleteButton::setDoubleClickHandler (std::function<void()> handler)
-{
-    doubleClickHandler = std::move (handler);
-}
-
-void LiveRecorderModuleView::DeleteButton::mouseUp (const juce::MouseEvent& event)
-{
-    if (event.getNumberOfClicks() > 1)
-    {
-        if (doubleClickHandler)
-            doubleClickHandler();
-        return;
-    }
-
-    if (singleClickHandler)
-        singleClickHandler();
-}
+static constexpr float kMinGainDb = -60.0f;
+static constexpr float kMaxGainDb = 6.0f;
 
 // =====================================================
 // CONSTRUCTION
@@ -44,44 +21,48 @@ LiveRecorderModuleView::LiveRecorderModuleView (AudioEngine& engine,
 {
     setSize (kModuleW, kModuleH);
 
-    // ================= MIDI ARM =================
-    addAndMakeVisible (midiArmButton);
-    midiArmButton.setClickingTogglesState (true);
-    midiArmButton.setLookAndFeel (&flatTiles);
+    // ================= MIDI IN/OUT =================
+    addAndMakeVisible (midiInButton);
+    addAndMakeVisible (midiOutButton);
+    midiInButton.setClickingTogglesState (true);
+    midiOutButton.setClickingTogglesState (true);
+    midiInButton.setLookAndFeel (&flatTiles);
+    midiOutButton.setLookAndFeel (&flatTiles);
 
     // ================= INPUT SELECT =================
     addAndMakeVisible (channelBox);
     channelBox.addListener (this);
 
     // ================= CONTROL BUTTONS =================
+    addAndMakeVisible (recordArmButton);
     addAndMakeVisible (monitorButton);
     addAndMakeVisible (linkButton);
+    addAndMakeVisible (lockButton);
     addAndMakeVisible (sliceButton);
     addAndMakeVisible (clearButton);
 
+    recordArmButton.setClickingTogglesState (true);
     monitorButton.setClickingTogglesState (true);
     linkButton   .setClickingTogglesState (true);
+    lockButton   .setClickingTogglesState (true);
     sliceButton  .setClickingTogglesState (true);
 
     sliceButton.setToggleState (true, juce::dontSendNotification);
     sliceButton.setButtonText (""); // tick drawn by LookAndFeel
     clearButton.setButtonText ("X");
 
+    recordArmButton.addListener (this);
     monitorButton.addListener (this);
     linkButton   .addListener (this);
+    lockButton   .addListener (this);
     sliceButton  .addListener (this);
-
-    clearButton.setSingleClickHandler ([this]()
-    {
-        showClearWarning();
-    });
-    clearButton.setDoubleClickHandler ([this]()
-    {
-        handleDeleteModule();
-    });
+    midiInButton .addListener (this);
+    midiOutButton.addListener (this);
 
     monitorButton.setLookAndFeel (&flatTiles);
     linkButton   .setLookAndFeel (&flatTiles);
+    recordArmButton.setLookAndFeel (&flatTiles);
+    lockButton   .setLookAndFeel (&flatTiles);
     sliceButton  .setLookAndFeel (&flatTiles);
     clearButton  .setLookAndFeel (&flatTiles);
 
@@ -93,14 +74,18 @@ LiveRecorderModuleView::LiveRecorderModuleView (AudioEngine& engine,
     timeCounter.setName ("RECORD_IDLE");
 
     applyPersistedControlState();
+    refreshInputChannels();
     startTimerHz (8); // slower, visible flash
 }
 
 LiveRecorderModuleView::~LiveRecorderModuleView()
 {
-    midiArmButton.setLookAndFeel (nullptr);
+    midiInButton.setLookAndFeel (nullptr);
+    midiOutButton.setLookAndFeel (nullptr);
     monitorButton.setLookAndFeel (nullptr);
     linkButton   .setLookAndFeel (nullptr);
+    recordArmButton.setLookAndFeel (nullptr);
+    lockButton   .setLookAndFeel (nullptr);
     sliceButton  .setLookAndFeel (nullptr);
     clearButton  .setLookAndFeel (nullptr);
     timeCounter  .setLookAndFeel (nullptr);
@@ -120,15 +105,52 @@ void LiveRecorderModuleView::paint (juce::Graphics& g)
                             8.0f,
                             1.0f);
 
-    const int meterY = kModuleH - 16;
-
     g.setColour (juce::Colours::black);
-    g.fillRect (11, meterY, 98, 10);
+    g.fillRect (meterBounds);
 
     g.setColour (juce::Colours::green);
-    g.fillRect (11, meterY,
-                int (98 * juce::jlimit (0.0f, 1.0f, rms)),
-                10);
+    g.fillRect (meterBounds.getX(),
+                meterBounds.getY(),
+                int (meterBounds.getWidth() * juce::jlimit (0.0f, 1.0f, rms)),
+                meterBounds.getHeight());
+
+    const float gainPos =
+        juce::jlimit (0.0f, 1.0f, gainPosition);
+    const int lineX = meterBounds.getX() + int (meterBounds.getWidth() * gainPos);
+    g.setColour (juce::Colours::white);
+    g.drawLine (float (lineX),
+                float (meterBounds.getY()),
+                float (lineX),
+                float (meterBounds.getBottom()),
+                2.0f);
+
+    const auto buttonBounds = timeCounter.getBounds();
+    const int progressHeight = 14;
+    juce::Rectangle<int> progressBounds (buttonBounds.getX(),
+                                         buttonBounds.getBottom() - progressHeight,
+                                         buttonBounds.getWidth(),
+                                         progressHeight);
+
+    const bool recordArmEnabled =
+        audioEngine.isRecorderRecordArmEnabled (recorderIndex);
+
+    double progress = 0.0;
+    if (recordArmEnabled)
+    {
+        const int totalSamples = audioEngine.getRecorderTotalSamples (recorderIndex);
+        const int maxSamples = audioEngine.getRecorderMaxSamples (recorderIndex);
+        if (maxSamples > 0)
+            progress = static_cast<double> (totalSamples) / static_cast<double> (maxSamples);
+    }
+    else
+    {
+        progress = audioEngine.getRecorderPlaybackProgress (recorderIndex);
+    }
+
+    g.setColour (juce::Colours::black.withAlpha (0.85f));
+    g.fillRect (progressBounds);
+    g.setColour (juce::Colours::white);
+    g.fillRect (progressBounds.withWidth (int (progressBounds.getWidth() * progress)));
 }
 
 // =====================================================
@@ -137,15 +159,40 @@ void LiveRecorderModuleView::paint (juce::Graphics& g)
 
 void LiveRecorderModuleView::resized()
 {
-    midiArmButton.setBounds (11, 6, 98, 18);
-    channelBox   .setBounds (11, 30, 98, 18);
+    const int padding = 8;
+    const int gap = 4;
+    const int topY = 6;
+    const int rowHeight = 18;
 
-    monitorButton.setBounds (11, 54, 19, 19);
-    linkButton   .setBounds (30, 54, 19, 19);
-    sliceButton  .setBounds (11, 73, 19, 19);
-    clearButton  .setBounds (30, 73, 19, 19);
+    const int contentWidth = getWidth() - padding * 2;
+    const int leftX = padding;
 
-    timeCounter  .setBounds (49, 54, 60, 38);
+    channelBox.setBounds (leftX, topY, contentWidth, rowHeight);
+
+    const int buttonRowY = topY + rowHeight + gap;
+    const int smallButtonSize = rowHeight;
+    const int totalButtonWidth = smallButtonSize * 6 + gap * 5;
+    const int buttonStartX = leftX + (contentWidth - totalButtonWidth) / 2;
+
+    recordArmButton.setBounds (buttonStartX, buttonRowY, smallButtonSize, smallButtonSize);
+    monitorButton.setBounds (buttonStartX + (smallButtonSize + gap), buttonRowY, smallButtonSize, smallButtonSize);
+    linkButton.setBounds (buttonStartX + (smallButtonSize + gap) * 2, buttonRowY, smallButtonSize, smallButtonSize);
+    lockButton.setBounds (buttonStartX + (smallButtonSize + gap) * 3, buttonRowY, smallButtonSize, smallButtonSize);
+    sliceButton.setBounds (buttonStartX + (smallButtonSize + gap) * 4, buttonRowY, smallButtonSize, smallButtonSize);
+    clearButton.setBounds (buttonStartX + (smallButtonSize + gap) * 5, buttonRowY, smallButtonSize, smallButtonSize);
+
+    const int midiRowY = buttonRowY + smallButtonSize + gap;
+    const int midiButtonWidth = (contentWidth - gap) / 2;
+    midiInButton.setBounds (leftX, midiRowY, midiButtonWidth, rowHeight);
+    midiOutButton.setBounds (leftX + midiButtonWidth + gap, midiRowY, midiButtonWidth, rowHeight);
+
+    const int bigButtonY = midiRowY + rowHeight + gap;
+    const int meterHeight = 12;
+    const int meterY = getHeight() - padding - meterHeight;
+    const int bigButtonHeight = meterY - bigButtonY - gap;
+
+    timeCounter.setBounds (leftX, bigButtonY, contentWidth, bigButtonHeight);
+    meterBounds = { leftX, meterY, contentWidth, meterHeight };
 }
 
 // =====================================================
@@ -219,6 +266,13 @@ void LiveRecorderModuleView::comboBoxChanged (juce::ComboBox* box)
     if (box != &channelBox)
         return;
 
+    if (audioEngine.isRecorderLocked (recorderIndex))
+    {
+        showLockedWarning();
+        refreshInputChannels();
+        return;
+    }
+
     const int selectedId = channelBox.getSelectedId();
     if (selectedId <= 0)
         return;
@@ -234,24 +288,82 @@ void LiveRecorderModuleView::comboBoxChanged (juce::ComboBox* box)
 
 void LiveRecorderModuleView::buttonClicked (juce::Button* b)
 {
+    if (b == &lockButton)
+    {
+        audioEngine.setRecorderLocked (recorderIndex,
+                                       lockButton.getToggleState());
+        audioEngine.saveState();
+        return;
+    }
+
+    if (b == &recordArmButton)
+    {
+        if (audioEngine.isRecorderLocked (recorderIndex))
+        {
+            showLockedWarning();
+            applyPersistedControlState();
+            return;
+        }
+
+        if (! recordArmButton.getToggleState()
+            && audioEngine.isRecorderArmed (recorderIndex))
+        {
+            showRecordingInProgressWarning();
+            applyPersistedControlState();
+            return;
+        }
+
+        audioEngine.setRecorderRecordArmEnabled (
+            recorderIndex,
+            recordArmButton.getToggleState());
+        if (recordArmButton.getToggleState())
+            audioEngine.stopPlayback (recorderIndex);
+        audioEngine.saveState();
+        return;
+    }
+
     if (b == &monitorButton)
     {
+        if (audioEngine.isRecorderLocked (recorderIndex))
+        {
+            showLockedWarning();
+            applyPersistedControlState();
+            return;
+        }
+
         audioEngine.setRecorderMonitoringEnabled (
             recorderIndex,
             monitorButton.getToggleState());
         return;
     }
 
-    if (b == &midiArmButton)
+    if (b == &midiInButton || b == &midiOutButton)
     {
+        if (audioEngine.isRecorderLocked (recorderIndex))
+        {
+            showLockedWarning();
+            applyPersistedControlState();
+            return;
+        }
+
+        const bool enableMidi = b->getToggleState();
         audioEngine.setRecorderMidiArmEnabled (
             recorderIndex,
-            midiArmButton.getToggleState());
+            enableMidi);
+        midiInButton.setToggleState (enableMidi, juce::dontSendNotification);
+        midiOutButton.setToggleState (enableMidi, juce::dontSendNotification);
         return;
     }
 
     if (b == &linkButton)
     {
+        if (audioEngine.isRecorderLocked (recorderIndex))
+        {
+            showLockedWarning();
+            applyPersistedControlState();
+            return;
+        }
+
         audioEngine.setRecorderLatchEnabled (
             recorderIndex,
             linkButton.getToggleState());
@@ -260,6 +372,13 @@ void LiveRecorderModuleView::buttonClicked (juce::Button* b)
 
     if (b == &sliceButton)
     {
+        if (audioEngine.isRecorderLocked (recorderIndex))
+        {
+            showLockedWarning();
+            applyPersistedControlState();
+            return;
+        }
+
         audioEngine.setRecorderIncludeInGenerationEnabled (
             recorderIndex,
             sliceButton.getToggleState());
@@ -268,23 +387,71 @@ void LiveRecorderModuleView::buttonClicked (juce::Button* b)
 
     if (b == &clearButton)
     {
-        showClearWarning();
+        if (audioEngine.isRecorderLocked (recorderIndex))
+        {
+            showLockedWarning();
+            return;
+        }
+
+        audioEngine.clearRecorder (recorderIndex);
+        isRecording = false;
+        lastRecordedSeconds = 0.0;
+        timeCounter.setButtonText ("00:00");
+        timeCounter.setName ("RECORD_IDLE");
+        applyPersistedControlState();
+
+        if (deleteModuleHandler)
+            deleteModuleHandler();
         return;
     }
 
     if (b != &timeCounter || stopDialogOpen)
         return;
 
+    const bool recordArmEnabled =
+        audioEngine.isRecorderRecordArmEnabled (recorderIndex);
     const bool hasLatched = audioEngine.hasLatchedRecorders();
+
+    if (! recordArmEnabled)
+    {
+        if (audioEngine.isRecorderLocked (recorderIndex))
+        {
+            showLockedWarning();
+            return;
+        }
+
+        if (isPlaying)
+        {
+            if (hasLatched)
+                audioEngine.stopLatchedPlayback();
+            else
+                audioEngine.stopPlayback (recorderIndex);
+            return;
+        }
+
+        const bool started =
+            hasLatched
+                ? audioEngine.startLatchedPlayback()
+                : audioEngine.startPlayback (recorderIndex);
+
+        if (! started)
+            showMissingRecordingWarning();
+        return;
+    }
 
     if (! isRecording)
     {
+        if (audioEngine.isRecorderLocked (recorderIndex))
+        {
+            showLockedWarning();
+            return;
+        }
+
         if (hasLatched)
             audioEngine.armLatchedRecorders();
         else
             audioEngine.armRecorder (recorderIndex);
         isRecording = true;
-        timeCounter.setName ("RECORD_ORANGE_ON");
         return;
     }
 
@@ -298,12 +465,19 @@ void LiveRecorderModuleView::buttonClicked (juce::Button* b)
     }
 
     if (hasLatched)
-        audioEngine.stopLatchedRecorders();
+    {
+        const auto result = audioEngine.stopLatchedRecorders();
+        if (result == RecordingModule::StopResult::Kept)
+            audioEngine.playUiSound (AudioEngine::UiSound::Bleep);
+    }
     else
-        audioEngine.confirmStopRecorder (recorderIndex);
+    {
+        const auto result = audioEngine.confirmStopRecorder (recorderIndex);
+        if (result == RecordingModule::StopResult::Kept)
+            audioEngine.playUiSound (AudioEngine::UiSound::Bleep);
+    }
     isRecording = false;
     lastRecordedSeconds = secs;
-    timeCounter.setName ("RECORD_STOPPED");
 }
 
 // =====================================================
@@ -313,6 +487,8 @@ void LiveRecorderModuleView::buttonClicked (juce::Button* b)
 void LiveRecorderModuleView::showUnderMinWarning()
 {
     stopDialogOpen = true;
+
+    audioEngine.playUiSound (AudioEngine::UiSound::Cowbell);
 
     juce::AlertWindow::showOkCancelBox (
         juce::AlertWindow::WarningIcon,
@@ -334,32 +510,79 @@ void LiveRecorderModuleView::showUnderMinWarning()
             }));
 }
 
-void LiveRecorderModuleView::showClearWarning()
+void LiveRecorderModuleView::showDeleteWarning()
 {
-    audioEngine.clearRecorder (recorderIndex);
-    isRecording = false;
-    lastRecordedSeconds = 0.0;
-    timeCounter.setButtonText ("00:00");
-    timeCounter.setName ("RECORD_IDLE");
-    applyPersistedControlState();
+    juce::AlertWindow::showOkCancelBox (
+        juce::AlertWindow::WarningIcon,
+        "Delete Recorder",
+        "Deleting this recorder will remove the temporary file and cannot be undone.",
+        "DELETE",
+        "CANCEL",
+        this,
+        juce::ModalCallbackFunction::create (
+            [this] (int r)
+            {
+                if (r != 1)
+                    return;
+
+                audioEngine.clearRecorder (recorderIndex);
+                isRecording = false;
+                lastRecordedSeconds = 0.0;
+                timeCounter.setButtonText ("00:00");
+                timeCounter.setName ("RECORD_IDLE");
+                applyPersistedControlState();
+
+                if (deleteModuleHandler)
+                    deleteModuleHandler();
+            }));
 }
 
-void LiveRecorderModuleView::handleDeleteModule()
+void LiveRecorderModuleView::showLockedWarning()
 {
-    if (deleteModuleHandler)
-        deleteModuleHandler();
+    audioEngine.playUiSound (AudioEngine::UiSound::Cowbell);
+    juce::AlertWindow::showMessageBoxAsync (
+        juce::AlertWindow::WarningIcon,
+        "Locked",
+        "This recorder is locked.");
+}
+
+void LiveRecorderModuleView::showMissingRecordingWarning()
+{
+    audioEngine.playUiSound (AudioEngine::UiSound::Cowbell);
+    juce::AlertWindow::showMessageBoxAsync (
+        juce::AlertWindow::InfoIcon,
+        "Nothing Recorded Yet",
+        "No recording exists for this recorder yet.");
+}
+
+void LiveRecorderModuleView::showRecordingInProgressWarning()
+{
+    audioEngine.playUiSound (AudioEngine::UiSound::Cowbell);
+    juce::AlertWindow::showMessageBoxAsync (
+        juce::AlertWindow::WarningIcon,
+        "Recording In Progress",
+        "Stop the current recording before switching to playback mode.");
 }
 
 void LiveRecorderModuleView::applyPersistedControlState()
 {
-    midiArmButton.setToggleState (
+    midiInButton.setToggleState (
         audioEngine.isRecorderMidiArmEnabled (recorderIndex),
+        juce::dontSendNotification);
+    midiOutButton.setToggleState (
+        audioEngine.isRecorderMidiArmEnabled (recorderIndex),
+        juce::dontSendNotification);
+    recordArmButton.setToggleState (
+        audioEngine.isRecorderRecordArmEnabled (recorderIndex),
         juce::dontSendNotification);
     monitorButton.setToggleState (
         audioEngine.isRecorderMonitoringEnabled (recorderIndex),
         juce::dontSendNotification);
     linkButton.setToggleState (
         audioEngine.isRecorderLatchEnabled (recorderIndex),
+        juce::dontSendNotification);
+    lockButton.setToggleState (
+        audioEngine.isRecorderLocked (recorderIndex),
         juce::dontSendNotification);
     sliceButton.setToggleState (
         audioEngine.isRecorderIncludeInGenerationEnabled (recorderIndex),
@@ -371,6 +594,72 @@ void LiveRecorderModuleView::setDeleteModuleHandler (std::function<void()> handl
     deleteModuleHandler = std::move (handler);
 }
 
+void LiveRecorderModuleView::mouseDown (const juce::MouseEvent& event)
+{
+    if (meterBounds.contains (event.getPosition()))
+    {
+        if (audioEngine.isRecorderLocked (recorderIndex))
+        {
+            showLockedWarning();
+            return;
+        }
+
+        adjustingGain = true;
+        const int x = event.getPosition().getX();
+        const float progress = juce::jlimit (0.0f, 1.0f,
+                                             float (x - meterBounds.getX())
+                                             / float (meterBounds.getWidth()));
+        const float gainDb = kMinGainDb + progress * (kMaxGainDb - kMinGainDb);
+        audioEngine.setRecorderInputGainDb (recorderIndex, gainDb);
+        audioEngine.saveState();
+        return;
+    }
+
+    const auto buttonBounds = timeCounter.getBounds();
+    const int progressHeight = 14;
+    juce::Rectangle<int> progressBounds (buttonBounds.getX(),
+                                         buttonBounds.getBottom() - progressHeight,
+                                         buttonBounds.getWidth(),
+                                         progressHeight);
+    if (progressBounds.contains (event.getPosition()))
+    {
+        const bool recordArmEnabled =
+            audioEngine.isRecorderRecordArmEnabled (recorderIndex);
+        if (! recordArmEnabled)
+        {
+            const float progress = juce::jlimit (0.0f, 1.0f,
+                                                 float (event.getPosition().getX() - progressBounds.getX())
+                                                 / float (progressBounds.getWidth()));
+            audioEngine.seekRecorderPlayback (recorderIndex, progress);
+        }
+    }
+}
+
+void LiveRecorderModuleView::mouseDrag (const juce::MouseEvent& event)
+{
+    if (! adjustingGain)
+        return;
+
+    if (audioEngine.isRecorderLocked (recorderIndex))
+    {
+        adjustingGain = false;
+        return;
+    }
+
+    const int x = event.getPosition().getX();
+    const float progress = juce::jlimit (0.0f, 1.0f,
+                                         float (x - meterBounds.getX())
+                                         / float (meterBounds.getWidth()));
+    const float gainDb = kMinGainDb + progress * (kMaxGainDb - kMinGainDb);
+    audioEngine.setRecorderInputGainDb (recorderIndex, gainDb);
+}
+
+void LiveRecorderModuleView::mouseUp (const juce::MouseEvent&)
+{
+    adjustingGain = false;
+    audioEngine.saveState();
+}
+
 // =====================================================
 // TIMER (ONLY SECTION THAT CHANGED MEANINGFULLY)
 // =====================================================
@@ -379,48 +668,76 @@ void LiveRecorderModuleView::timerCallback()
 {
     refreshInputChannels();
 
-    rms  = audioEngine.getInputRMS();
-    peak = audioEngine.getInputPeak();
+    const float linearRms = audioEngine.getRecorderRms (recorderIndex);
+    const float linearPeak = audioEngine.getRecorderPeak (recorderIndex);
+
+    const float rmsDb = juce::Decibels::gainToDecibels (linearRms, kMinGainDb);
+    const float peakDb = juce::Decibels::gainToDecibels (linearPeak, kMinGainDb);
+
+    rms = juce::jlimit (0.0f, 1.0f,
+                        (rmsDb - kMinGainDb) / (kMaxGainDb - kMinGainDb));
+    peak = juce::jlimit (0.0f, 1.0f,
+                         (peakDb - kMinGainDb) / (kMaxGainDb - kMinGainDb));
+
+    const float gainDb = audioEngine.getRecorderInputGainDb (recorderIndex);
+    gainPosition = juce::jlimit (0.0f, 1.0f,
+                                 (gainDb - kMinGainDb) / (kMaxGainDb - kMinGainDb));
 
     const bool currentlyRecording = audioEngine.isRecorderArmed (recorderIndex);
     if (currentlyRecording != isRecording)
         isRecording = currentlyRecording;
 
-    const auto recorderFile = RecordingModule::getRecorderFile (recorderIndex);
-    if (! recorderFile.existsAsFile() && ! isRecording)
+    const bool recordArmEnabled =
+        audioEngine.isRecorderRecordArmEnabled (recorderIndex);
+
+    if (! recordArmEnabled)
     {
-        lastRecordedSeconds = 0.0;
-        timeCounter.setButtonText ("00:00");
-    }
-
-    flashPhase = 1.0 - flashPhase; // binary toggle
-
-    if (isRecording)
-    {
-        const double secs =
-            audioEngine.getRecorderCurrentPassSeconds (recorderIndex);
-
-        lastRecordedSeconds = secs;
-        timeCounter.setButtonText (
-            juce::String::formatted ("%02d:%02d",
-                                     int (secs) / 60,
-                                     int (secs) % 60));
-
-        if (secs < kMinSeconds)
-            timeCounter.setName (flashPhase > 0.5
-                                 ? "RECORD_ORANGE_ON"
-                                 : "RECORD_ORANGE_OFF");
-        else
-            timeCounter.setName (flashPhase > 0.5
-                                 ? "RECORD_RED_ON"
-                                 : "RECORD_RED_OFF");
+        isPlaying = audioEngine.isRecorderPlaying (recorderIndex);
+        timeCounter.setName (isPlaying ? "PLAYING" : "PLAY_IDLE");
+        timeCounter.setButtonText ("");
     }
     else
     {
-        timeCounter.setButtonText (
-            juce::String::formatted ("%02d:%02d",
-                                     int (lastRecordedSeconds) / 60,
-                                     int (lastRecordedSeconds) % 60));
+        const auto recorderFile = RecordingModule::getRecorderFile (recorderIndex);
+        if (! recorderFile.existsAsFile() && ! isRecording)
+        {
+            lastRecordedSeconds = 0.0;
+            timeCounter.setButtonText ("00:00");
+        }
+
+        const double startMs = audioEngine.getRecorderRecordStartMs (recorderIndex);
+        const double nowMs = juce::Time::getMillisecondCounterHiRes();
+        const double elapsedMs = nowMs - startMs;
+        const double cycleMs = 1000.0;
+        flashPhase = std::fmod (elapsedMs / cycleMs, 1.0);
+        const bool flashOn = flashPhase < 0.5;
+
+        if (isRecording)
+        {
+            const double secs =
+                audioEngine.getRecorderCurrentPassSeconds (recorderIndex);
+
+            lastRecordedSeconds = secs;
+            timeCounter.setButtonText (
+                juce::String::formatted ("%02d:%02d",
+                                         int (secs) / 60,
+                                         int (secs) % 60));
+
+            if (secs < kMinSeconds)
+                timeCounter.setName (flashOn ? "RECORD_ORANGE_ON"
+                                             : "RECORD_ORANGE_DIM");
+            else
+                timeCounter.setName (flashOn ? "RECORD_RED_ON"
+                                             : "RECORD_RED_DIM");
+        }
+        else
+        {
+            timeCounter.setName ("RECORD_STOPPED");
+            timeCounter.setButtonText (
+                juce::String::formatted ("%02d:%02d",
+                                         int (lastRecordedSeconds) / 60,
+                                         int (lastRecordedSeconds) % 60));
+        }
     }
 
     repaint();

@@ -1,4 +1,5 @@
 #include "RecordingBus.h"
+#include <cmath>
 
 // =====================================================
 // CONSTRUCTION
@@ -10,13 +11,18 @@ RecordingBus::RecordingBus() {}
 // LIFECYCLE
 // =====================================================
 
-void RecordingBus::prepare (double sampleRate)
+void RecordingBus::prepare (double sampleRate, int bufferSize)
 {
     this->sampleRate = sampleRate;
+    this->bufferSize = bufferSize;
 
     // CRITICAL: ensure writers exist
     for (int i = 0; i < kNumRecorders; ++i)
+    {
         recorders[i].recorder.prepareDevice (sampleRate, i);
+        recorders[i].inputBuffer.setSize (1, bufferSize, false, false, true);
+        recorders[i].playbackBuffer.setSize (1, bufferSize, false, false, true);
+    }
 }
 
 // =====================================================
@@ -35,6 +41,7 @@ void RecordingBus::armRecorder (int index)
     else
     {
         recorders[index].armed = true;
+        recorders[index].recordStartMs = juce::Time::getMillisecondCounterHiRes();
         recorders[index].recorder.arm();
     }
 }
@@ -70,6 +77,8 @@ void RecordingBus::clearRecorder (int index)
 
     recorders[index].recorder.clear();
     recorders[index].armed = false;
+    recorders[index].playing = false;
+    recorders[index].playbackPosition = 0;
 }
 
 // =====================================================
@@ -89,12 +98,14 @@ bool RecordingBus::hasLatchedRecorders() const
 
 void RecordingBus::armLatchedRecorders()
 {
+    const double startMs = juce::Time::getMillisecondCounterHiRes();
     for (auto& slot : recorders)
     {
         if (! slot.latchEnabled)
             continue;
 
         slot.armed = true;
+        slot.recordStartMs = startMs;
         slot.recorder.arm();
     }
 }
@@ -137,6 +148,167 @@ bool RecordingBus::isRecorderLatchEnabled (int index) const
         return false;
 
     return recorders[index].latchEnabled;
+}
+
+void RecordingBus::setRecorderRecordArmEnabled (int index, bool enabled)
+{
+    if (index < 0 || index >= kNumRecorders)
+        return;
+
+    recorders[index].recordArmEnabled = enabled;
+}
+
+bool RecordingBus::isRecorderRecordArmEnabled (int index) const
+{
+    if (index < 0 || index >= kNumRecorders)
+        return false;
+
+    return recorders[index].recordArmEnabled;
+}
+
+bool RecordingBus::startPlayback (int index)
+{
+    if (index < 0 || index >= kNumRecorders)
+        return false;
+
+    auto& slot = recorders[index];
+    const int totalSamples = slot.recorder.getTotalSamples();
+    if (totalSamples <= 0)
+        return false;
+
+    if (slot.playbackPosition >= totalSamples)
+        slot.playbackPosition = 0;
+
+    slot.playing = true;
+    return true;
+}
+
+void RecordingBus::stopPlayback (int index)
+{
+    if (index < 0 || index >= kNumRecorders)
+        return;
+
+    recorders[index].playing = false;
+}
+
+bool RecordingBus::isRecorderPlaying (int index) const
+{
+    if (index < 0 || index >= kNumRecorders)
+        return false;
+
+    return recorders[index].playing;
+}
+
+bool RecordingBus::startLatchedPlayback()
+{
+    bool started = false;
+    for (int i = 0; i < kNumRecorders; ++i)
+    {
+        if (! recorders[i].latchEnabled)
+            continue;
+
+        if (startPlayback (i))
+            started = true;
+    }
+    return started;
+}
+
+void RecordingBus::stopLatchedPlayback()
+{
+    for (auto& slot : recorders)
+    {
+        if (! slot.latchEnabled)
+            continue;
+
+        slot.playing = false;
+    }
+}
+
+double RecordingBus::getRecorderPlaybackProgress (int index) const
+{
+    if (index < 0 || index >= kNumRecorders)
+        return 0.0;
+
+    const auto& slot = recorders[index];
+    const int totalSamples = slot.recorder.getTotalSamples();
+    if (totalSamples <= 0)
+        return 0.0;
+
+    return static_cast<double> (slot.playbackPosition)
+           / static_cast<double> (totalSamples);
+}
+
+void RecordingBus::seekRecorderPlayback (int index, double progress)
+{
+    if (index < 0 || index >= kNumRecorders)
+        return;
+
+    auto& slot = recorders[index];
+    const int totalSamples = slot.recorder.getTotalSamples();
+    if (totalSamples <= 0)
+        return;
+
+    const auto clamped = juce::jlimit (0.0, 1.0, progress);
+    slot.playbackPosition =
+        static_cast<juce::int64> (clamped * static_cast<double> (totalSamples));
+}
+
+double RecordingBus::getRecorderRecordStartMs (int index) const
+{
+    if (index < 0 || index >= kNumRecorders)
+        return 0.0;
+
+    return recorders[index].recordStartMs;
+}
+
+int RecordingBus::getRecorderTotalSamples (int index) const
+{
+    if (index < 0 || index >= kNumRecorders)
+        return 0;
+
+    return recorders[index].recorder.getTotalSamples();
+}
+
+int RecordingBus::getRecorderMaxSamples (int index) const
+{
+    if (index < 0 || index >= kNumRecorders)
+        return 0;
+
+    return recorders[index].recorder.getMaxSamples();
+}
+
+void RecordingBus::setRecorderInputGainDb (int index, float gainDb)
+{
+    if (index < 0 || index >= kNumRecorders)
+        return;
+
+    auto& slot = recorders[index];
+    slot.inputGainDb = gainDb;
+    slot.inputGainLinear = juce::Decibels::decibelsToGain (gainDb);
+}
+
+float RecordingBus::getRecorderInputGainDb (int index) const
+{
+    if (index < 0 || index >= kNumRecorders)
+        return 0.0f;
+
+    return recorders[index].inputGainDb;
+}
+
+float RecordingBus::getRecorderRms (int index) const
+{
+    if (index < 0 || index >= kNumRecorders)
+        return 0.0f;
+
+    return recorders[index].rms;
+}
+
+float RecordingBus::getRecorderPeak (int index) const
+{
+    if (index < 0 || index >= kNumRecorders)
+        return 0.0f;
+
+    return recorders[index].peak;
 }
 
 // =====================================================
@@ -187,20 +359,76 @@ void RecordingBus::processAudioBlock (const float* const* input,
 
     for (auto& slot : recorders)
     {
+        slot.rms = 0.0f;
+        slot.peak = 0.0f;
+
         const int buf = slot.bufferIndex;
-        if (buf < 0 || buf >= numInputChannels)
-            continue;
+        const bool hasInput = buf >= 0 && buf < numInputChannels;
+        const float* src = hasInput ? input[buf] : nullptr;
 
-        const float* src = input[buf];
+        const float gain = slot.inputGainLinear;
+        const bool hasGain = gain != 1.0f;
 
-        if (slot.armed)
-            slot.recorder.process (src, numSamples);
+        const float* meterSrc = src;
+        if (hasInput && hasGain)
+        {
+            auto* scratch = slot.inputBuffer.getWritePointer (0);
+            for (int i = 0; i < numSamples; ++i)
+                scratch[i] = src[i] * gain;
+            meterSrc = scratch;
+        }
 
-        if (slot.monitoringEnabled)
+        if (hasInput)
+        {
+            float rmsSum = 0.0f;
+            float peak = 0.0f;
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const float v = std::abs (meterSrc[i]);
+                peak = juce::jmax (peak, v);
+                rmsSum += v * v;
+            }
+            slot.peak = peak;
+            if (numSamples > 0)
+                slot.rms = std::sqrt (rmsSum / numSamples);
+        }
+
+        if (slot.armed && hasInput)
+            slot.recorder.process (meterSrc, numSamples);
+
+        if (slot.monitoringEnabled && slot.recordArmEnabled && hasInput)
         {
             for (int out = 0; out < numOutputChannels; ++out)
                 juce::FloatVectorOperations::add (
-                    output[out], src, numSamples);
+                    output[out], meterSrc, numSamples);
+        }
+
+        if (slot.playing)
+        {
+            auto* playBuffer = slot.playbackBuffer.getWritePointer (0);
+            const int readSamples =
+                slot.recorder.readPlaybackSamples (playBuffer,
+                                                   static_cast<int> (slot.playbackPosition),
+                                                   numSamples);
+            if (readSamples <= 0)
+            {
+                slot.playing = false;
+            }
+            else
+            {
+                if (readSamples < numSamples)
+                    juce::FloatVectorOperations::clear (playBuffer + readSamples,
+                                                        numSamples - readSamples);
+
+                slot.playbackPosition += readSamples;
+                const int totalSamples = slot.recorder.getTotalSamples();
+                if (slot.playbackPosition >= totalSamples)
+                    slot.playing = false;
+
+                for (int out = 0; out < numOutputChannels; ++out)
+                    juce::FloatVectorOperations::add (
+                        output[out], playBuffer, numSamples);
+            }
         }
     }
 }

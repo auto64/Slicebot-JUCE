@@ -1,4 +1,5 @@
 #include "RecordingWriter.h"
+#include <cstring>
 
 RecordingWriter::RecordingWriter (int maxSamplesIn,
                                   int numChannels,
@@ -54,6 +55,11 @@ int RecordingWriter::getPassSamples() const
     return writeHead - passStart;
 }
 
+int RecordingWriter::getMaxSamples() const
+{
+    return maxSamples;
+}
+
 void RecordingWriter::write (const float* const* input,
                              int numChannels,
                              int numSamples)
@@ -90,11 +96,11 @@ bool RecordingWriter::writeToDisk()
 
     auto writer = std::unique_ptr<juce::AudioFormatWriter> (
         format.createWriterFor (stream.release(),
-                                 sampleRate,
-                                 buffer.getNumChannels(),
-                                 24,
-                                 {},
-                                 0));
+                                sampleRate,
+                                buffer.getNumChannels(),
+                                24,
+                                {},
+                                0));
 
     if (! writer)
         return false;
@@ -102,4 +108,47 @@ bool RecordingWriter::writeToDisk()
     return writer->writeFromAudioSampleBuffer (buffer,
                                                0,
                                                writeHead);
+}
+
+bool RecordingWriter::loadFromDisk()
+{
+    if (! file.existsAsFile())
+        return false;
+
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+
+    auto reader = std::unique_ptr<juce::AudioFormatReader> (
+        formatManager.createReaderFor (file));
+
+    if (! reader)
+        return false;
+
+    const juce::int64 totalSamples = juce::jmin<juce::int64> (reader->lengthInSamples,
+                                                              static_cast<juce::int64> (maxSamples));
+
+    buffer.clear();
+    reader->read (&buffer, 0, static_cast<int> (totalSamples), 0, true, true);
+
+    writeHead = static_cast<int> (totalSamples);
+    passStart = writeHead;
+    return true;
+}
+
+int RecordingWriter::readSamples (float* dest,
+                                  int startSample,
+                                  int numSamples) const
+{
+    if (startSample >= writeHead || numSamples <= 0)
+        return 0;
+
+    const int available = writeHead - startSample;
+    const int toRead = juce::jmin (available, numSamples);
+
+    if (toRead <= 0)
+        return 0;
+
+    auto* src = buffer.getReadPointer (0, startSample);
+    std::memcpy (dest, src, static_cast<size_t> (toRead) * sizeof (float));
+    return toRead;
 }

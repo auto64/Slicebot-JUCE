@@ -17,6 +17,9 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
 
     // called when audio device / active inputs change
     void refreshInputChannels();
@@ -24,31 +27,17 @@ public:
     void setDeleteModuleHandler (std::function<void()> handler);
 
 private:
-    class DeleteButton final : public juce::TextButton
-    {
-    public:
-        using juce::TextButton::TextButton;
-
-        void setSingleClickHandler (std::function<void()> handler);
-        void setDoubleClickHandler (std::function<void()> handler);
-
-    protected:
-        void mouseUp (const juce::MouseEvent& event) override;
-
-    private:
-        std::function<void()> singleClickHandler;
-        std::function<void()> doubleClickHandler;
-    };
-
     // callbacks
     void buttonClicked (juce::Button*) override;
     void comboBoxChanged (juce::ComboBox*) override;
     void timerCallback() override;
 
     void showUnderMinWarning();
-    void showClearWarning();
+    void showDeleteWarning();
+    void showLockedWarning();
+    void showMissingRecordingWarning();
+    void showRecordingInProgressWarning();
     void applyPersistedControlState();
-    void handleDeleteModule();
 
     // state
     AudioEngine& audioEngine;
@@ -57,6 +46,7 @@ private:
     bool   isRecording = false;
     bool   stopDialogOpen = false;
     double lastRecordedSeconds = 0.0;
+    bool isPlaying = false;
 
     // 🔴 REQUIRED for flashing (was accidentally dropped)
     double flashPhase = 0.0;
@@ -65,19 +55,25 @@ private:
     FlatTileLookAndFeel flatTiles;
 
     // UI
-    juce::ToggleButton midiArmButton { "MIDI ARM" };
+    juce::ToggleButton midiInButton { "MIDI IN" };
+    juce::ToggleButton midiOutButton { "MIDI OUT" };
     juce::ComboBox     channelBox;
 
+    juce::ToggleButton recordArmButton { "REC" };
     juce::ToggleButton monitorButton { "I" };
     juce::ToggleButton linkButton    { "L" };
+    juce::ToggleButton lockButton    { "LOCK" };
     juce::ToggleButton sliceButton   { "" }; // ✓ drawn by LookAndFeel
-    DeleteButton       clearButton   { "X" };
+    juce::TextButton   clearButton   { "X" };
 
     // RECORD BUTTON (counter)
     juce::TextButton   timeCounter;
 
     float rms  = 0.0f;
     float peak = 0.0f;
+    float gainPosition = 0.5f;
+    juce::Rectangle<int> meterBounds;
+    bool adjustingGain = false;
 
     std::function<void()> deleteModuleHandler;
 

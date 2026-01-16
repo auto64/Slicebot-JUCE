@@ -5,6 +5,7 @@
 #include "MutationOrchestrator.h"
 #include "RecordingModule.h"
 #include <cmath>
+#include <vector>
 #include "AppProperties.h"
 
 namespace
@@ -156,10 +157,10 @@ namespace
         {
             auto bounds = getLocalBounds();
             const int spacing = 3;
-            const int slotWidth = 120;
-            const int slotHeight = 120;
-            const int totalWidth = slotWidth * 4 + spacing * 3;
-            auto startX = bounds.getX() + (bounds.getWidth() - totalWidth) / 2;
+            const int slotWidth =
+                (bounds.getWidth() - spacing * 3) / 4;
+            const int slotHeight = bounds.getHeight();
+            auto startX = bounds.getX();
             auto y = bounds.getY();
 
             for (int index = 0; index < slots.size(); ++index)
@@ -519,7 +520,7 @@ namespace
             void drawButtonText (juce::Graphics& g,
                                  juce::TextButton& button,
                                  bool,
-                                 bool) override
+                                 bool) override; hookup드2,
             {
                 g.setFont (getTextButtonFont (button, button.getHeight()));
                 g.setColour (button.findColour (button.getToggleState()
@@ -740,6 +741,7 @@ namespace
             y += focusH + spacing;
             grid.setBounds (0, y, gridW, gridH);
             y += gridH + spacing;
+
             if (actionBar != nullptr)
                 actionBar->setBounds (0, y, gridW, actionBarH);
             y += actionBarH + 8;
@@ -861,9 +863,15 @@ namespace
         void resized() override
         {
             const auto bounds = getLocalBounds();
-            mainHeader.setBounds (bounds);
-            globalHeader.setBounds (bounds);
-            localHeader.setBounds (bounds);
+            auto paddedBounds = bounds;
+            const int headerTopPadding = 16;
+            const int headerBottomPadding = 10;
+            paddedBounds.removeFromTop (headerTopPadding);
+            paddedBounds.removeFromBottom (headerBottomPadding);
+
+            mainHeader.setBounds (paddedBounds);
+            globalHeader.setBounds (paddedBounds);
+            localHeader.setBounds (paddedBounds);
             liveHeader.setBounds (bounds);
             if (liveContent != nullptr)
                 liveContent->setBounds (liveHeader.getLocalBounds());
@@ -969,13 +977,13 @@ namespace
             const int statusH = 24;
             const int frameH = focusH + spacing + gridH + spacing + actionBarH + 8 + statusH;
 
-            const int headerTopPadding = 16;
-            const int headerBottomPadding = -10;
+            const int headerTopPadding = 0;
+            const int headerBottomPadding = 0;
 
             headerContainer.setBounds (
-                5,
+                0,
                 headerTopPadding,
-                609 - 5 - 5,
+                609,
                 headerH - headerTopPadding + headerBottomPadding
             );
 

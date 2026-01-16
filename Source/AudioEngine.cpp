@@ -53,19 +53,16 @@ void AudioEngine::restoreState()
         {
             const juce::String prefix = "recorder_" + juce::String (index) + "_";
             const int inputChannel = settings->getIntValue (prefix + "inputChannel", -1);
-            const bool monitoringEnabled = settings->getBoolValue (prefix + "monitoringEnabled", false);
-            const bool latchEnabled = settings->getBoolValue (prefix + "latchEnabled", false);
             const bool includeEnabled = settings->getBoolValue (prefix + "includeInGeneration", true);
-            const bool midiArmEnabled = settings->getBoolValue (prefix + "midiArmEnabled", false);
 
             recorderPhysicalChannels[index] = inputChannel;
-            recorderMonitoringEnabled[index] = monitoringEnabled;
-            recorderLatchEnabled[index] = latchEnabled;
             recorderIncludeInGeneration[index] = includeEnabled;
-            recorderMidiArmEnabled[index] = midiArmEnabled;
+            recorderMonitoringEnabled[index] = false;
+            recorderLatchEnabled[index] = false;
+            recorderMidiArmEnabled[index] = false;
 
-            recordingBus.setRecorderMonitoringEnabled (index, monitoringEnabled);
-            recordingBus.setRecorderLatchEnabled (index, latchEnabled);
+            recordingBus.setRecorderMonitoringEnabled (index, false);
+            recordingBus.setRecorderLatchEnabled (index, false);
         }
     }
 }
@@ -79,10 +76,10 @@ void AudioEngine::saveState()
         {
             const juce::String prefix = "recorder_" + juce::String (index) + "_";
             settings->setValue (prefix + "inputChannel", recorderPhysicalChannels[index]);
-            settings->setValue (prefix + "monitoringEnabled", recorderMonitoringEnabled[index]);
-            settings->setValue (prefix + "latchEnabled", recorderLatchEnabled[index]);
             settings->setValue (prefix + "includeInGeneration", recorderIncludeInGeneration[index]);
-            settings->setValue (prefix + "midiArmEnabled", recorderMidiArmEnabled[index]);
+            settings->setValue (prefix + "monitoringEnabled", false);
+            settings->setValue (prefix + "latchEnabled", false);
+            settings->setValue (prefix + "midiArmEnabled", false);
         }
     }
 }

@@ -3,7 +3,9 @@
 #include "GlobalTabView.h"
 #include "AudioCacheStore.h"
 #include "MutationOrchestrator.h"
+#include "RecordingModule.h"
 #include <cmath>
+#include "AppProperties.h"
 
 namespace
 {
@@ -63,7 +65,10 @@ namespace
                 recorderView = std::make_unique<LiveRecorderModuleView> (audioEngine, moduleIndex);
                 recorderView->setDeleteModuleHandler ([this]()
                 {
-                    setEnabled (false);
+                    if (deleteModuleHandler)
+                        deleteModuleHandler();
+                    else
+                        setEnabled (false);
                 });
                 addAndMakeVisible (*recorderView);
             }
@@ -88,6 +93,16 @@ namespace
             placeholderClickHandler = std::move (handler);
         }
 
+        void setDeleteModuleHandler (std::function<void()> handler)
+        {
+            deleteModuleHandler = std::move (handler);
+        }
+
+        int getModuleIndex() const
+        {
+            return moduleIndex;
+        }
+
         void resized() override
         {
             auto bounds = getLocalBounds();
@@ -103,6 +118,7 @@ namespace
         LiveModulePlaceholder placeholder;
         std::unique_ptr<LiveRecorderModuleView> recorderView;
         std::function<void()> placeholderClickHandler;
+        std::function<void()> deleteModuleHandler;
     };
 
     class LiveModuleContainer final : public juce::Component
@@ -116,13 +132,19 @@ namespace
                 auto slot = std::make_unique<LiveModuleSlot> (audioEngine, index);
                 slot->setPlaceholderClickHandler ([this, slotPtr = slot.get()]()
                 {
-                    slotPtr->setEnabled (true);
+                    setSlotEnabled (*slotPtr, true);
                     if (moduleEnabledCallback)
                         moduleEnabledCallback();
+                });
+                slot->setDeleteModuleHandler ([this, slotPtr = slot.get()]()
+                {
+                    setSlotEnabled (*slotPtr, false);
                 });
                 addAndMakeVisible (*slot);
                 slots.add (std::move (slot));
             }
+
+            restoreSlotState();
         }
 
         void setModuleEnabledCallback (std::function<void()> handler)
@@ -148,6 +170,45 @@ namespace
         }
 
     private:
+        juce::String slotKey (int index) const
+        {
+            return "liveModuleEnabled_" + juce::String (index);
+        }
+
+        void persistSlotState (int index, bool enabled)
+        {
+            auto& props = AppProperties::get().properties();
+            if (auto* settings = props.getUserSettings())
+            {
+                settings->setValue (slotKey (index), enabled);
+                props.saveIfNeeded();
+            }
+        }
+
+        void restoreSlotState()
+        {
+            auto& props = AppProperties::get().properties();
+            auto* settings = props.getUserSettings();
+
+            for (auto* slot : slots)
+            {
+                const int index = slot->getModuleIndex();
+                const bool storedEnabled = settings != nullptr
+                                               ? settings->getBoolValue (slotKey (index), false)
+                                               : false;
+                const auto recorderFile = RecordingModule::getRecorderFile (index);
+                const bool shouldEnable = storedEnabled || recorderFile.existsAsFile();
+                if (shouldEnable)
+                    setSlotEnabled (*slot, true);
+            }
+        }
+
+        void setSlotEnabled (LiveModuleSlot& slot, bool enabled)
+        {
+            slot.setEnabled (enabled);
+            persistSlotState (slot.getModuleIndex(), enabled);
+        }
+
         AudioEngine& audioEngine;
         juce::OwnedArray<LiveModuleSlot> slots;
         std::function<void()> moduleEnabledCallback;

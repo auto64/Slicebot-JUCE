@@ -48,6 +48,10 @@ void FlatTileLookAndFeel::drawToggleButton (juce::Graphics& g,
             fill = paleBlue();
         else if (b.getButtonText() == "L")
             fill = palePurple();
+        else if (b.getButtonText() == "MIDI IN")
+            fill = midGreen();
+        else if (b.getButtonText() == "MIDI OUT")
+            fill = juce::Colours::orange;
         else if (b.getButtonText() == "MIDI ARM")
             fill = darkGreen();
         else if (b.getButtonText() == "REC")
@@ -74,8 +78,8 @@ void FlatTileLookAndFeel::drawToggleButton (juce::Graphics& g,
 
     if (b.getButtonText() == "LOCK")
     {
-        const float w = r.getWidth() * 0.5f;
-        const float h = r.getHeight() * 0.45f;
+        const float w = r.getWidth() * 0.38f;
+        const float h = r.getHeight() * 0.34f;
         const float x = r.getCentreX() - w * 0.5f;
         const float y = r.getCentreY() - h * 0.1f;
         g.setColour (b.getToggleState() ? juce::Colours::white : lockGrey());
@@ -84,11 +88,11 @@ void FlatTileLookAndFeel::drawToggleButton (juce::Graphics& g,
 
         juce::Path shackle;
         shackle.addRoundedRectangle (x + w * 0.2f,
-                                     y - h * 0.5f,
+                                     y - h * 0.6f,
                                      w * 0.6f,
-                                     h * 0.7f,
+                                     h * 0.6f,
                                      3.0f);
-        g.strokePath (shackle, juce::PathStrokeType (1.5f));
+        g.strokePath (shackle, juce::PathStrokeType (1.2f));
         return;
     }
 
@@ -97,15 +101,17 @@ void FlatTileLookAndFeel::drawToggleButton (juce::Graphics& g,
 
     if (b.getButtonText().isEmpty())
     {
+        const auto tickBounds = r.reduced (r.getWidth() * 0.18f,
+                                           r.getHeight() * 0.18f);
         juce::Path tick;
-        tick.startNewSubPath (r.getX() + r.getWidth() * 0.25f,
-                              r.getCentreY());
-        tick.lineTo (r.getX() + r.getWidth() * 0.45f,
-                     r.getBottom() - r.getHeight() * 0.25f);
-        tick.lineTo (r.getRight() - r.getWidth() * 0.22f,
-                     r.getY() + r.getHeight() * 0.28f);
+        tick.startNewSubPath (tickBounds.getX(),
+                              tickBounds.getCentreY());
+        tick.lineTo (tickBounds.getX() + tickBounds.getWidth() * 0.35f,
+                     tickBounds.getBottom());
+        tick.lineTo (tickBounds.getRight(),
+                     tickBounds.getY());
 
-        g.strokePath (tick, juce::PathStrokeType (2.0f));
+        g.strokePath (tick, juce::PathStrokeType (1.6f));
     }
     else
     {
@@ -177,10 +183,13 @@ void FlatTileLookAndFeel::drawButtonBackground (juce::Graphics& g,
         g.setColour (darkGrey());
         g.fillRect (r);
         g.setColour (midGreen());
+        const float size = r.getHeight() * 0.4f;
+        const float left = r.getCentreX() - size * 0.5f;
+        const float top = r.getCentreY() - size * 0.5f;
         juce::Path play;
-        play.startNewSubPath (r.getX() + r.getWidth() * 0.35f, r.getY() + r.getHeight() * 0.25f);
-        play.lineTo (r.getX() + r.getWidth() * 0.35f, r.getBottom() - r.getHeight() * 0.25f);
-        play.lineTo (r.getRight() - r.getWidth() * 0.25f, r.getCentreY());
+        play.startNewSubPath (left, top);
+        play.lineTo (left, top + size);
+        play.lineTo (left + size, r.getCentreY());
         play.closeSubPath();
         g.fillPath (play);
         return;
@@ -225,7 +234,7 @@ void FlatTileLookAndFeel::drawButtonText (juce::Graphics& g,
         return;
 
     g.setColour (juce::Colours::white);
-    g.setFont (b.getHeight() * 0.66f); // 66%
+    g.setFont (b.getHeight() * 0.5f); // 50%
 
     g.drawFittedText (b.getButtonText(),
                       b.getLocalBounds(),

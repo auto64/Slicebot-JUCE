@@ -46,6 +46,7 @@ private:
     bool   isRecording = false;
     bool   stopDialogOpen = false;
     double lastRecordedSeconds = 0.0;
+    double recordingOffsetSeconds = 0.0;
     bool isPlaying = false;
 
     // 🔴 REQUIRED for flashing (was accidentally dropped)
@@ -73,6 +74,7 @@ private:
     float peak = 0.0f;
     float gainPosition = 0.5f;
     juce::Rectangle<int> meterBounds;
+    juce::Rectangle<int> progressBounds;
     bool adjustingGain = false;
 
     std::function<void()> deleteModuleHandler;

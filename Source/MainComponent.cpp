@@ -26,7 +26,7 @@ namespace
             g.drawRect (bounds.reduced (10.0f), 1.0f);
 
             g.setColour (juce::Colours::white);
-            g.setFont (juce::Font (36.0f, juce::Font::plain));
+            g.setFont (juce::Font (juce::FontOptions (36.0f)));
             g.drawFittedText ("+", getLocalBounds(), juce::Justification::centred, 1);
         }
 
@@ -457,7 +457,7 @@ namespace
             for (auto* button : buttons)
             {
                 button->setLookAndFeel (&compactLookAndFeel);
-                addAndMakeVisible (button);
+                addAndMakeVisible (*button);
             }
         }
 
@@ -498,7 +498,9 @@ namespace
         public:
             juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override
             {
-                return juce::Font ("Helvetica", juce::jmin (11.0f, buttonHeight * 0.5f), juce::Font::plain);
+                return juce::Font (juce::FontOptions ("Helvetica",
+                                                      juce::jmin (11.0f, buttonHeight * 0.5f),
+                                                      juce::Font::plain));
             }
 
             void drawButtonBackground (juce::Graphics& g,
@@ -520,7 +522,7 @@ namespace
             void drawButtonText (juce::Graphics& g,
                                  juce::TextButton& button,
                                  bool,
-                                 bool) override; hookup드2,
+                                 bool) override
             {
                 g.setFont (getTextButtonFont (button, button.getHeight()));
                 g.setColour (button.findColour (button.getToggleState()
@@ -736,7 +738,7 @@ namespace
             const int actionBarH = 28;
             const int statusH = 24;
 
-            int y = 0;
+            int y = 5;
             focusPlaceholder.setBounds (0, y, focusW, focusH);
             y += focusH + spacing;
             grid.setBounds (0, y, gridW, gridH);
@@ -831,8 +833,8 @@ namespace
                             MainTabView& mainTabViewToUse)
             : tabs (tabsToTrack),
               mainHeader (mainTabViewToUse),
-              globalHeader (stateStoreToUse),
-              stateStore (stateStoreToUse)
+              stateStore (stateStoreToUse),
+              globalHeader (stateStoreToUse)
         {
             addAndMakeVisible (mainHeader);
             addAndMakeVisible (globalHeader);
@@ -852,7 +854,7 @@ namespace
         {
             liveContent = content;
             if (liveContent != nullptr)
-                liveHeader.addAndMakeVisible (liveContent);
+                liveHeader.addAndMakeVisible (*liveContent);
         }
 
         void paint (juce::Graphics& g) override

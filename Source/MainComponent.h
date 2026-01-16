@@ -53,7 +53,7 @@ private:
 
     AudioEngine& audioEngine;
     SettingsView settingsView;
-    std::unique_ptr<LiveRecorderModuleView> recorderModule;
+    std::unique_ptr<juce::Component> liveModuleContainer;
     SliceStateStore stateStore;
     PreviewChainPlayer previewChainPlayer;
 

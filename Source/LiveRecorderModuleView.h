@@ -21,7 +21,25 @@ public:
     // called when audio device / active inputs change
     void refreshInputChannels();
 
+    void setDeleteModuleHandler (std::function<void()> handler);
+
 private:
+    class DeleteButton final : public juce::TextButton
+    {
+    public:
+        using juce::TextButton::TextButton;
+
+        void setSingleClickHandler (std::function<void()> handler);
+        void setDoubleClickHandler (std::function<void()> handler);
+
+    protected:
+        void mouseUp (const juce::MouseEvent& event) override;
+
+    private:
+        std::function<void()> singleClickHandler;
+        std::function<void()> doubleClickHandler;
+    };
+
     // callbacks
     void buttonClicked (juce::Button*) override;
     void comboBoxChanged (juce::ComboBox*) override;
@@ -30,6 +48,7 @@ private:
     void showUnderMinWarning();
     void showClearWarning();
     void applyPersistedControlState();
+    void handleDeleteModule();
 
     // state
     AudioEngine& audioEngine;
@@ -52,13 +71,15 @@ private:
     juce::ToggleButton monitorButton { "I" };
     juce::ToggleButton linkButton    { "L" };
     juce::ToggleButton sliceButton   { "" }; // ✓ drawn by LookAndFeel
-    juce::TextButton   clearButton   { "X" };
+    DeleteButton       clearButton   { "X" };
 
     // RECORD BUTTON (counter)
     juce::TextButton   timeCounter;
 
     float rms  = 0.0f;
     float peak = 0.0f;
+
+    std::function<void()> deleteModuleHandler;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LiveRecorderModuleView)
 };

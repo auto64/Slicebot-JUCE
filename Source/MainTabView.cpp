@@ -169,9 +169,6 @@ namespace
             configureButton (jumbleAllButton, "JUMBLE ALL");
             configureButton (resliceAllButton, "RESLICE ALL");
             configureButton (exportButton, "EXPORT");
-            configureButton (playButton, "PLAY");
-            configureButton (stopButton, "STOP");
-            configureButton (recacheButton, "RECACHE");
             configureButton (lockButton, "🔒");
             configureButton (loopButton, "LOOP");
 
@@ -182,9 +179,6 @@ namespace
             buttons.add (&jumbleAllButton);
             buttons.add (&resliceAllButton);
             buttons.add (&exportButton);
-            buttons.add (&playButton);
-            buttons.add (&stopButton);
-            buttons.add (&recacheButton);
             buttons.add (&lockButton);
             buttons.add (&loopButton);
 
@@ -199,21 +193,6 @@ namespace
         {
             for (auto* button : buttons)
                 button->setLookAndFeel (nullptr);
-        }
-
-        void setRecacheHandler (std::function<void()> handler)
-        {
-            recacheButton.onClick = std::move (handler);
-        }
-
-        void setPlayHandler (std::function<void()> handler)
-        {
-            playButton.onClick = std::move (handler);
-        }
-
-        void setStopHandler (std::function<void()> handler)
-        {
-            stopButton.onClick = std::move (handler);
         }
 
         void setLoopHandler (std::function<void(bool)> handler)
@@ -321,9 +300,6 @@ namespace
         juce::TextButton jumbleAllButton;
         juce::TextButton resliceAllButton;
         juce::TextButton exportButton;
-        juce::TextButton playButton;
-        juce::TextButton stopButton;
-        juce::TextButton recacheButton;
         juce::TextButton lockButton;
         juce::TextButton loopButton;
         juce::Array<juce::TextButton*> buttons;
@@ -542,36 +518,7 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
     addAndMakeVisible (*statusArea);
 
     if (auto* bar = dynamic_cast<ActionBar*> (actionBar.get()))
-    {
-        bar->setRecacheHandler ([this]()
-        {
-            const auto snapshot = stateStore.getSnapshot();
-            const bool hasFile = snapshot.sourceFile.existsAsFile();
-            const bool hasDir = snapshot.sourceDirectory.isDirectory();
-            if (! hasFile && ! hasDir)
-            {
-                updateStatusText ("No source selected.");
-                return;
-            }
-
-            const auto source = hasFile ? snapshot.sourceFile : snapshot.sourceDirectory;
-            updateStatusText ("Recaching...");
-            updateProgress (0.0f);
-
-            const auto cacheData = AudioCacheStore::buildFromSource (
-                source,
-                ! hasFile,
-                [this] (int current, int total)
-                {
-                    if (total > 0)
-                        updateProgress (static_cast<float> (current) / static_cast<float> (total));
-                });
-            AudioCacheStore::save (cacheData);
-            stateStore.setCacheData (cacheData);
-            updateStatusText ("Recache complete.");
-            updateProgress (1.0f);
-        });
-    }
+        juce::ignoreUnused (bar);
 
     applySettingsSnapshot (stateStore.getSnapshot());
     updateLiveModeState();
@@ -729,6 +676,12 @@ void MainTabView::updateLiveModeState()
 {
     const bool isLive = modeLive.getToggleState();
     sourceButton.setVisible (! isLive);
+}
+
+void MainTabView::setLiveModeSelected (bool isLive)
+{
+    modeLive.setToggleState (isLive, juce::sendNotification);
+    updateLiveModeState();
 }
 
 void MainTabView::setProgress (float progress)

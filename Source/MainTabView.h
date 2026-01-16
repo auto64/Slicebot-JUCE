@@ -15,6 +15,7 @@ public:
     void setStatusTextCallback (std::function<void(const juce::String&)> callback);
     void setProgressCallback (std::function<void(float)> callback);
     void setProgress (float progress);
+    void setLiveModeSelected (bool isLive);
 
 private:
     static constexpr float kFontSize = 11.0f;

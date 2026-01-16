@@ -7,6 +7,152 @@
 
 namespace
 {
+    class LiveModulePlaceholder final : public juce::Component
+    {
+    public:
+        void setClickHandler (std::function<void()> handler)
+        {
+            onClick = std::move (handler);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (juce::Colour (0xff5a5a5a));
+            auto bounds = getLocalBounds().toFloat();
+            g.setColour (juce::Colours::grey);
+            g.drawRect (bounds.reduced (10.0f), 1.0f);
+
+            g.setColour (juce::Colours::white);
+            g.setFont (juce::Font (36.0f, juce::Font::plain));
+            g.drawFittedText ("+", getLocalBounds(), juce::Justification::centred, 1);
+        }
+
+        void mouseUp (const juce::MouseEvent&) override
+        {
+            if (onClick)
+                onClick();
+        }
+
+    private:
+        std::function<void()> onClick;
+    };
+
+    class LiveModuleSlot final : public juce::Component
+    {
+    public:
+        LiveModuleSlot (AudioEngine& engineToUse, int moduleIndexToUse)
+            : audioEngine (engineToUse),
+              moduleIndex (moduleIndexToUse)
+        {
+            addAndMakeVisible (placeholder);
+            placeholder.setClickHandler ([this]()
+            {
+                if (placeholderClickHandler)
+                    placeholderClickHandler();
+            });
+        }
+
+        void setEnabled (bool shouldEnable)
+        {
+            if (isEnabled == shouldEnable)
+                return;
+
+            isEnabled = shouldEnable;
+            if (isEnabled)
+            {
+                recorderView = std::make_unique<LiveRecorderModuleView> (audioEngine, moduleIndex);
+                recorderView->setDeleteModuleHandler ([this]()
+                {
+                    setEnabled (false);
+                });
+                addAndMakeVisible (*recorderView);
+            }
+            else
+            {
+                if (recorderView != nullptr)
+                    removeChildComponent (recorderView.get());
+                recorderView.reset();
+            }
+
+            placeholder.setVisible (! isEnabled);
+            resized();
+        }
+
+        bool isModuleEnabled() const
+        {
+            return isEnabled;
+        }
+
+        void setPlaceholderClickHandler (std::function<void()> handler)
+        {
+            placeholderClickHandler = std::move (handler);
+        }
+
+        void resized() override
+        {
+            auto bounds = getLocalBounds();
+            placeholder.setBounds (bounds);
+            if (recorderView != nullptr)
+                recorderView->setBounds (bounds);
+        }
+
+    private:
+        AudioEngine& audioEngine;
+        int moduleIndex = 0;
+        bool isEnabled = false;
+        LiveModulePlaceholder placeholder;
+        std::unique_ptr<LiveRecorderModuleView> recorderView;
+        std::function<void()> placeholderClickHandler;
+    };
+
+    class LiveModuleContainer final : public juce::Component
+    {
+    public:
+        explicit LiveModuleContainer (AudioEngine& engineToUse)
+            : audioEngine (engineToUse)
+        {
+            for (int index = 0; index < 4; ++index)
+            {
+                auto slot = std::make_unique<LiveModuleSlot> (audioEngine, index);
+                slot->setPlaceholderClickHandler ([this, slotPtr = slot.get()]()
+                {
+                    slotPtr->setEnabled (true);
+                    if (moduleEnabledCallback)
+                        moduleEnabledCallback();
+                });
+                addAndMakeVisible (*slot);
+                slots.add (std::move (slot));
+            }
+        }
+
+        void setModuleEnabledCallback (std::function<void()> handler)
+        {
+            moduleEnabledCallback = std::move (handler);
+        }
+
+        void resized() override
+        {
+            auto bounds = getLocalBounds();
+            const int spacing = 3;
+            const int slotWidth = 120;
+            const int slotHeight = 120;
+            const int totalWidth = slotWidth * 4 + spacing * 3;
+            auto startX = bounds.getX() + (bounds.getWidth() - totalWidth) / 2;
+            auto y = bounds.getY();
+
+            for (int index = 0; index < slots.size(); ++index)
+            {
+                slots[index]->setBounds (startX, y, slotWidth, slotHeight);
+                startX += slotWidth + spacing;
+            }
+        }
+
+    private:
+        AudioEngine& audioEngine;
+        juce::OwnedArray<LiveModuleSlot> slots;
+        std::function<void()> moduleEnabledCallback;
+    };
+
     class FocusPreviewArea final : public juce::Component,
                                    private juce::ChangeListener
     {
@@ -233,7 +379,6 @@ namespace
             configureButton (jumbleAllButton, "JUMBLE ALL");
             configureButton (resliceAllButton, "RESLICE ALL");
             configureButton (exportButton, "EXPORT");
-            configureButton (recacheButton, "RECACHE");
             configureButton (lockButton, "🔒");
             configureButton (loopButton, "LOOP");
 
@@ -244,7 +389,6 @@ namespace
             buttons.add (&jumbleAllButton);
             buttons.add (&resliceAllButton);
             buttons.add (&exportButton);
-            buttons.add (&recacheButton);
             buttons.add (&lockButton);
             buttons.add (&loopButton);
 
@@ -259,11 +403,6 @@ namespace
         {
             for (auto* button : buttons)
                 button->setLookAndFeel (nullptr);
-        }
-
-        void setRecacheHandler (std::function<void()> handler)
-        {
-            recacheButton.onClick = std::move (handler);
         }
 
         void setSliceAllHandler (std::function<void()> handler)
@@ -376,7 +515,6 @@ namespace
         juce::TextButton jumbleAllButton;
         juce::TextButton resliceAllButton;
         juce::TextButton exportButton;
-        juce::TextButton recacheButton;
         juce::TextButton lockButton;
         juce::TextButton loopButton;
         juce::Array<juce::TextButton*> buttons;
@@ -498,34 +636,6 @@ namespace
                     }
 
                     setStatusText ("Slice all complete.");
-                });
-                bar->setRecacheHandler ([this]()
-                {
-                    const auto snapshot = stateStore.getSnapshot();
-                    const bool hasFile = snapshot.sourceFile.existsAsFile();
-                    const bool hasDir = snapshot.sourceDirectory.isDirectory();
-                    if (! hasFile && ! hasDir)
-                    {
-                        setStatusText ("No source selected.");
-                        return;
-                    }
-
-                    const auto source = hasFile ? snapshot.sourceFile : snapshot.sourceDirectory;
-                    setStatusText ("Recaching...");
-                    setProgress (0.0f);
-
-                    const auto cacheData = AudioCacheStore::buildFromSource (
-                        source,
-                        ! hasFile,
-                        [this] (int current, int total)
-                        {
-                            if (total > 0)
-                                setProgress (static_cast<float> (current) / static_cast<float> (total));
-                        });
-                    AudioCacheStore::save (cacheData);
-                    stateStore.setCacheData (cacheData);
-                    setStatusText ("Recache complete.");
-                    setProgress (1.0f);
                 });
             }
 
@@ -677,8 +787,9 @@ namespace
 
         void setLiveContent (juce::Component* content)
         {
-            if (content != nullptr)
-                liveHeader.addAndMakeVisible (content);
+            liveContent = content;
+            if (liveContent != nullptr)
+                liveHeader.addAndMakeVisible (liveContent);
         }
 
         void paint (juce::Graphics& g) override
@@ -693,6 +804,8 @@ namespace
             globalHeader.setBounds (bounds);
             localHeader.setBounds (bounds);
             liveHeader.setBounds (bounds);
+            if (liveContent != nullptr)
+                liveContent->setBounds (liveHeader.getLocalBounds());
         }
 
     private:
@@ -730,6 +843,7 @@ namespace
         GlobalTabView globalHeader;
         GreyPlaceholder localHeader;
         juce::Component liveHeader;
+        juce::Component* liveContent = nullptr;
     };
 
     class ContentArea final : public juce::Component,
@@ -760,6 +874,14 @@ namespace
             {
                 persistentFrame.setProgress (progress);
             });
+
+            if (auto* liveContainer = dynamic_cast<LiveModuleContainer*> (liveContent))
+            {
+                liveContainer->setModuleEnabledCallback ([this]()
+                {
+                    mainTabView.setLiveModeSelected (true);
+                });
+            }
 
             tabs.getTabbedButtonBar().addChangeListener (this);
             updateVisibleContent();
@@ -863,8 +985,7 @@ MainComponent::MainComponent (AudioEngine& engine)
       settingsView (engine),
       previewChainPlayer (engine.getDeviceManager())
 {
-    recorderModule =
-        std::make_unique<LiveRecorderModuleView> (engine, 0);
+    liveModuleContainer = std::make_unique<LiveModuleContainer> (engine);
 
     tabs.addTab ("MAIN",
                  juce::Colours::darkgrey,
@@ -897,7 +1018,7 @@ MainComponent::MainComponent (AudioEngine& engine)
                                          settingsView,
                                          stateStore,
                                          previewChainPlayer,
-                                         recorderModule.get());
+                                         liveModuleContainer.get());
     contentArea->setComponentID ("contentArea");
     addAndMakeVisible (contentArea);
 }

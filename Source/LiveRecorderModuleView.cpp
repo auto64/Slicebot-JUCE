@@ -7,6 +7,33 @@ static constexpr int kModuleH = 120;
 static constexpr double kMinSeconds = 25.0;
 
 // =====================================================
+// DELETE BUTTON (SINGLE + DOUBLE CLICK)
+// =====================================================
+
+void LiveRecorderModuleView::DeleteButton::setSingleClickHandler (std::function<void()> handler)
+{
+    singleClickHandler = std::move (handler);
+}
+
+void LiveRecorderModuleView::DeleteButton::setDoubleClickHandler (std::function<void()> handler)
+{
+    doubleClickHandler = std::move (handler);
+}
+
+void LiveRecorderModuleView::DeleteButton::mouseUp (const juce::MouseEvent& event)
+{
+    if (event.getNumberOfClicks() > 1)
+    {
+        if (doubleClickHandler)
+            doubleClickHandler();
+        return;
+    }
+
+    if (singleClickHandler)
+        singleClickHandler();
+}
+
+// =====================================================
 // CONSTRUCTION
 // =====================================================
 
@@ -43,7 +70,15 @@ LiveRecorderModuleView::LiveRecorderModuleView (AudioEngine& engine,
     monitorButton.addListener (this);
     linkButton   .addListener (this);
     sliceButton  .addListener (this);
-    clearButton  .addListener (this);
+
+    clearButton.setSingleClickHandler ([this]()
+    {
+        showClearWarning();
+    });
+    clearButton.setDoubleClickHandler ([this]()
+    {
+        handleDeleteModule();
+    });
 
     monitorButton.setLookAndFeel (&flatTiles);
     linkButton   .setLookAndFeel (&flatTiles);
@@ -293,26 +328,18 @@ void LiveRecorderModuleView::showUnderMinWarning()
 
 void LiveRecorderModuleView::showClearWarning()
 {
-    juce::AlertWindow::showOkCancelBox (
-        juce::AlertWindow::WarningIcon,
-        "Clear Recording",
-        "This will permanently clear the recording.",
-        "Clear",
-        "Cancel",
-        this,
-        juce::ModalCallbackFunction::create (
-            [this] (int r)
-            {
-                if (r == 1)
-                {
-                    audioEngine.clearRecorder (recorderIndex);
-                    isRecording = false;
-                    lastRecordedSeconds = 0.0;
-                    timeCounter.setButtonText ("00:00");
-                    timeCounter.setName ("RECORD_IDLE");
-                    applyPersistedControlState();
-                }
-            }));
+    audioEngine.clearRecorder (recorderIndex);
+    isRecording = false;
+    lastRecordedSeconds = 0.0;
+    timeCounter.setButtonText ("00:00");
+    timeCounter.setName ("RECORD_IDLE");
+    applyPersistedControlState();
+}
+
+void LiveRecorderModuleView::handleDeleteModule()
+{
+    if (deleteModuleHandler)
+        deleteModuleHandler();
 }
 
 void LiveRecorderModuleView::applyPersistedControlState()
@@ -329,6 +356,11 @@ void LiveRecorderModuleView::applyPersistedControlState()
     sliceButton.setToggleState (
         audioEngine.isRecorderIncludeInGenerationEnabled (recorderIndex),
         juce::dontSendNotification);
+}
+
+void LiveRecorderModuleView::setDeleteModuleHandler (std::function<void()> handler)
+{
+    deleteModuleHandler = std::move (handler);
 }
 
 // =====================================================

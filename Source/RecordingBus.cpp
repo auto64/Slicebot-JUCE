@@ -28,16 +28,9 @@ void RecordingBus::armRecorder (int index)
     if (index < 0 || index >= kNumRecorders)
         return;
 
-    if (recorders[index].latchEnabled)
+    if (hasLatchedRecorders())
     {
-        for (int i = 0; i < kNumRecorders; ++i)
-        {
-            if (! recorders[i].latchEnabled)
-                continue;
-
-            recorders[i].armed = true;
-            recorders[i].recorder.arm();
-        }
+        armLatchedRecorders();
     }
     else
     {
@@ -57,20 +50,9 @@ RecordingBus::confirmStopRecorder (int index)
     if (! slot.armed)
         return RecordingModule::StopResult::Kept;
 
-    if (slot.latchEnabled)
+    if (hasLatchedRecorders())
     {
-        RecordingModule::StopResult result = RecordingModule::StopResult::Kept;
-        for (int i = 0; i < kNumRecorders; ++i)
-        {
-            if (! recorders[i].latchEnabled)
-                continue;
-
-            recorders[i].armed = false;
-            const auto stopResult = recorders[i].recorder.confirmStop();
-            if (stopResult == RecordingModule::StopResult::DeletedTooShort)
-                result = stopResult;
-        }
-        return result;
+        return stopLatchedRecorders();
     }
 
     slot.armed = false;
@@ -93,6 +75,45 @@ void RecordingBus::clearRecorder (int index)
 // =====================================================
 // STATE
 // =====================================================
+
+bool RecordingBus::hasLatchedRecorders() const
+{
+    for (const auto& slot : recorders)
+    {
+        if (slot.latchEnabled)
+            return true;
+    }
+
+    return false;
+}
+
+void RecordingBus::armLatchedRecorders()
+{
+    for (auto& slot : recorders)
+    {
+        if (! slot.latchEnabled)
+            continue;
+
+        slot.armed = true;
+        slot.recorder.arm();
+    }
+}
+
+RecordingModule::StopResult RecordingBus::stopLatchedRecorders()
+{
+    RecordingModule::StopResult result = RecordingModule::StopResult::Kept;
+    for (auto& slot : recorders)
+    {
+        if (! slot.latchEnabled)
+            continue;
+
+        slot.armed = false;
+        const auto stopResult = slot.recorder.confirmStop();
+        if (stopResult == RecordingModule::StopResult::DeletedTooShort)
+            result = stopResult;
+    }
+    return result;
+}
 
 bool RecordingBus::isRecorderArmed (int index) const
 {

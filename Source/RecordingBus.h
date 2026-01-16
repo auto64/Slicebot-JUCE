@@ -25,6 +25,10 @@ public:
     void cancelStopRecorder (int index);
     void clearRecorder (int index);
 
+    bool hasLatchedRecorders() const;
+    void armLatchedRecorders();
+    RecordingModule::StopResult stopLatchedRecorders();
+
     bool isRecorderArmed (int index) const;
     void setRecorderLatchEnabled (int index, bool enabled);
     bool isRecorderLatchEnabled (int index) const;

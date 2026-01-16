@@ -44,11 +44,16 @@ public:
     void setRecorderIncludeInGenerationEnabled (int index, bool enabled);
     void setRecorderMidiArmEnabled (int index, bool enabled);
 
+    bool hasLatchedRecorders() const;
+    void armLatchedRecorders();
+    RecordingModule::StopResult stopLatchedRecorders();
+
     int getRecorderInputChannel (int index) const;
     bool isRecorderMonitoringEnabled (int index) const;
     bool isRecorderLatchEnabled (int index) const;
     bool isRecorderIncludeInGenerationEnabled (int index) const;
     bool isRecorderMidiArmEnabled (int index) const;
+    bool isRecorderArmed (int index) const;
 
     // timing
     double getRecorderCurrentPassSeconds (int index) const;

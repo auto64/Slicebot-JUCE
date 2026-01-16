@@ -206,6 +206,21 @@ void AudioEngine::setRecorderMidiArmEnabled (int index, bool enabled)
     recorderMidiArmEnabled[index] = enabled;
 }
 
+bool AudioEngine::hasLatchedRecorders() const
+{
+    return recordingBus.hasLatchedRecorders();
+}
+
+void AudioEngine::armLatchedRecorders()
+{
+    recordingBus.armLatchedRecorders();
+}
+
+RecordingModule::StopResult AudioEngine::stopLatchedRecorders()
+{
+    return recordingBus.stopLatchedRecorders();
+}
+
 int AudioEngine::getRecorderInputChannel (int index) const
 {
     if (index < 0 || index >= RecordingBus::kNumRecorders)
@@ -244,6 +259,11 @@ bool AudioEngine::isRecorderMidiArmEnabled (int index) const
         return false;
 
     return recorderMidiArmEnabled[index];
+}
+
+bool AudioEngine::isRecorderArmed (int index) const
+{
+    return recordingBus.isRecorderArmed (index);
 }
 
 // =====================================================

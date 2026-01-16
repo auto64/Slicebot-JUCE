@@ -275,9 +275,14 @@ void LiveRecorderModuleView::buttonClicked (juce::Button* b)
     if (b != &timeCounter || stopDialogOpen)
         return;
 
+    const bool hasLatched = audioEngine.hasLatchedRecorders();
+
     if (! isRecording)
     {
-        audioEngine.armRecorder (recorderIndex);
+        if (hasLatched)
+            audioEngine.armLatchedRecorders();
+        else
+            audioEngine.armRecorder (recorderIndex);
         isRecording = true;
         timeCounter.setName ("RECORD_ORANGE_ON");
         return;
@@ -292,7 +297,10 @@ void LiveRecorderModuleView::buttonClicked (juce::Button* b)
         return;
     }
 
-    audioEngine.confirmStopRecorder (recorderIndex);
+    if (hasLatched)
+        audioEngine.stopLatchedRecorders();
+    else
+        audioEngine.confirmStopRecorder (recorderIndex);
     isRecording = false;
     lastRecordedSeconds = secs;
     timeCounter.setName ("RECORD_STOPPED");
@@ -374,6 +382,10 @@ void LiveRecorderModuleView::timerCallback()
     rms  = audioEngine.getInputRMS();
     peak = audioEngine.getInputPeak();
 
+    const bool currentlyRecording = audioEngine.isRecorderArmed (recorderIndex);
+    if (currentlyRecording != isRecording)
+        isRecording = currentlyRecording;
+
     const auto recorderFile = RecordingModule::getRecorderFile (recorderIndex);
     if (! recorderFile.existsAsFile() && ! isRecording)
     {
@@ -388,6 +400,7 @@ void LiveRecorderModuleView::timerCallback()
         const double secs =
             audioEngine.getRecorderCurrentPassSeconds (recorderIndex);
 
+        lastRecordedSeconds = secs;
         timeCounter.setButtonText (
             juce::String::formatted ("%02d:%02d",
                                      int (secs) / 60,

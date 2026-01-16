@@ -94,6 +94,7 @@ bool RecordingWriter::writeToDisk()
     if (! stream)
         return false;
 
+    JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wdeprecated-declarations")
     auto writer = std::unique_ptr<juce::AudioFormatWriter> (
         format.createWriterFor (stream.release(),
                                 sampleRate,
@@ -101,6 +102,7 @@ bool RecordingWriter::writeToDisk()
                                 24,
                                 {},
                                 0));
+    JUCE_END_IGNORE_WARNINGS_GCC_LIKE
 
     if (! writer)
         return false;

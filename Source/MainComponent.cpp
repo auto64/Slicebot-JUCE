@@ -19,65 +19,108 @@ namespace
 
     struct ExportDialogResult
     {
-        juce::File exportDirectory;
         juce::String exportPrefix;
         bool generateIndividual = true;
         bool generateChain = true;
     };
 
+    class ExportOptionsComponent final : public juce::Component
+    {
+    public:
+        ExportOptionsComponent (const juce::String& initialPrefix,
+                                bool initialIndividual,
+                                bool initialChain)
+        {
+            prefixLabel.setText ("Prefix:", juce::dontSendNotification);
+            prefixLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+            addAndMakeVisible (prefixLabel);
+
+            prefixEditor.setText (initialPrefix, juce::dontSendNotification);
+            addAndMakeVisible (prefixEditor);
+
+            individualToggle.setButtonText ("Generate Individual Samples");
+            individualToggle.setToggleState (initialIndividual, juce::dontSendNotification);
+            addAndMakeVisible (individualToggle);
+
+            chainToggle.setButtonText ("Generate Sample Chain");
+            chainToggle.setToggleState (initialChain, juce::dontSendNotification);
+            addAndMakeVisible (chainToggle);
+
+            okButton.setButtonText ("OK");
+            cancelButton.setButtonText ("Cancel");
+            addAndMakeVisible (okButton);
+            addAndMakeVisible (cancelButton);
+
+            okButton.onClick = [this]()
+            {
+                accepted = true;
+                if (auto* window = findParentComponentOfClass<juce::DialogWindow>())
+                    window->exitModalState (1);
+            };
+            cancelButton.onClick = [this]()
+            {
+                accepted = false;
+                if (auto* window = findParentComponentOfClass<juce::DialogWindow>())
+                    window->exitModalState (0);
+            };
+
+            setSize (320, 140);
+        }
+
+        void resized() override
+        {
+            auto bounds = getLocalBounds().reduced (12);
+            auto row = bounds.removeFromTop (24);
+            prefixLabel.setBounds (row.removeFromLeft (60));
+            prefixEditor.setBounds (row);
+
+            bounds.removeFromTop (8);
+            individualToggle.setBounds (bounds.removeFromTop (24));
+            chainToggle.setBounds (bounds.removeFromTop (24));
+
+            bounds.removeFromTop (8);
+            auto buttonRow = bounds.removeFromTop (24);
+            okButton.setBounds (buttonRow.removeFromLeft (80));
+            buttonRow.removeFromLeft (8);
+            cancelButton.setBounds (buttonRow.removeFromLeft (80));
+        }
+
+        bool wasAccepted() const { return accepted; }
+
+        juce::String getPrefix() const
+        {
+            return prefixEditor.getText().trim();
+        }
+
+        bool shouldGenerateIndividual() const { return individualToggle.getToggleState(); }
+        bool shouldGenerateChain() const { return chainToggle.getToggleState(); }
+
+    private:
+        juce::Label prefixLabel;
+        juce::TextEditor prefixEditor;
+        juce::ToggleButton individualToggle;
+        juce::ToggleButton chainToggle;
+        juce::TextButton okButton;
+        juce::TextButton cancelButton;
+        bool accepted = false;
+    };
+
     std::optional<ExportDialogResult> promptExportOptions()
     {
         auto* settings = AppProperties::get().properties().getUserSettings();
-        const juce::String lastDirectory =
-            settings != nullptr ? settings->getValue ("LastExportDirectory") : juce::String();
-        const juce::File defaultDirectory = lastDirectory.isNotEmpty()
-                                                ? juce::File (lastDirectory)
-                                                : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
-
         const juce::String lastPrefix =
             settings != nullptr ? settings->getValue ("LastExportPrefix", "export") : "export";
         const bool lastGenerateIndividual =
             settings != nullptr ? settings->getBoolValue ("LastGenerateIndividual", true) : true;
         const bool lastGenerateChain =
             settings != nullptr ? settings->getBoolValue ("LastGenerateChain", true) : true;
-
-        juce::AlertWindow window ("Export Options",
-                                  "Set export prefix and output types.",
-                                  juce::AlertWindow::NoIcon);
-        auto* prefixEditor = window.addTextEditor ("prefix", lastPrefix, "Prefix:");
-        auto* individualToggle = window.addToggleButton ("Generate Individual Samples", lastGenerateIndividual);
-        auto* chainToggle = window.addToggleButton ("Generate Sample Chain", lastGenerateChain);
-        window.addButton ("Next", 1);
-        window.addButton ("Cancel", 0);
-
-        if (window.runModalLoop() == 0)
-            return std::nullopt;
-
-        juce::String prefix = prefixEditor != nullptr ? prefixEditor->getText().trim() : juce::String();
+        juce::String prefix = lastPrefix.trim();
         if (prefix.isEmpty())
             prefix = "export";
 
-        const bool generateIndividual = individualToggle != nullptr && individualToggle->getToggleState();
-        const bool generateChain = chainToggle != nullptr && chainToggle->getToggleState();
-
-        juce::FileChooser chooser ("Select Export Folder", defaultDirectory, "*");
-        if (! chooser.browseForDirectory())
-            return std::nullopt;
-
-        const juce::File exportDirectory = chooser.getResult();
-        if (exportDirectory == juce::File())
-            return std::nullopt;
-
-        if (settings != nullptr)
-        {
-            settings->setValue ("LastExportDirectory", exportDirectory.getFullPathName());
-            settings->setValue ("LastExportPrefix", prefix);
-            settings->setValue ("LastGenerateIndividual", generateIndividual);
-            settings->setValue ("LastGenerateChain", generateChain);
-            AppProperties::get().properties().saveIfNeeded();
-        }
-
-        return ExportDialogResult { exportDirectory, prefix, generateIndividual, generateChain };
+        return ExportDialogResult { prefix,
+                                    lastGenerateIndividual,
+                                    lastGenerateChain };
     }
 
     class LiveModulePlaceholder final : public juce::Component
@@ -813,22 +856,55 @@ namespace
                         return;
                     }
 
-                    SliceStateStore::ExportSettings exportSettings;
-                    exportSettings.exportDirectory = options->exportDirectory;
-                    exportSettings.exportPrefix = options->exportPrefix;
-                    exportSettings.generateIndividual = options->generateIndividual;
-                    exportSettings.generateChain = options->generateChain;
+                    auto* settings = AppProperties::get().properties().getUserSettings();
+                    const juce::String lastDirectory =
+                        settings != nullptr ? settings->getValue ("LastExportDirectory") : juce::String();
+                    const juce::File defaultDirectory = lastDirectory.isNotEmpty()
+                                                            ? juce::File (lastDirectory)
+                                                            : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
 
-                    MutationOrchestrator orchestrator (stateStore);
-                    bool exportOk = false;
+                    exportChooser = std::make_unique<juce::FileChooser> ("Select Export Folder",
+                                                                         defaultDirectory,
+                                                                         "*");
+                    const int flags = juce::FileBrowserComponent::openMode
+                                      | juce::FileBrowserComponent::canSelectDirectories;
+                    exportChooser->launchAsync (flags, [this, options] (const juce::FileChooser& chooser)
+                    {
+                        const juce::File exportDirectory = chooser.getResult();
+                        if (! exportDirectory.exists())
+                        {
+                            setStatusText ("No export directory selected.");
+                            return;
+                        }
 
-                    if (options->generateIndividual)
-                        exportOk |= orchestrator.requestExportSlices (exportSettings);
+                        auto* settingsInner = AppProperties::get().properties().getUserSettings();
+                        if (settingsInner != nullptr)
+                        {
+                            settingsInner->setValue ("LastExportDirectory", exportDirectory.getFullPathName());
+                            settingsInner->setValue ("LastExportPrefix", options->exportPrefix);
+                            settingsInner->setValue ("LastGenerateIndividual", options->generateIndividual);
+                            settingsInner->setValue ("LastGenerateChain", options->generateChain);
+                            AppProperties::get().properties().saveIfNeeded();
+                        }
 
-                    if (options->generateChain)
-                        exportOk |= orchestrator.requestExportFullChainWithVolume (exportSettings);
+                        SliceStateStore::ExportSettings exportSettings;
+                        exportSettings.exportDirectory = exportDirectory;
+                        exportSettings.exportPrefix = options->exportPrefix;
+                        exportSettings.generateIndividual = options->generateIndividual;
+                        exportSettings.generateChain = options->generateChain;
 
-                    setStatusText (exportOk ? "Export complete." : "Export failed.");
+                        MutationOrchestrator orchestrator (stateStore);
+                        bool exportOk = false;
+
+                        if (options->generateIndividual)
+                            exportOk |= orchestrator.requestExportSlices (exportSettings);
+
+                        if (options->generateChain)
+                            exportOk |= orchestrator.requestExportFullChainWithVolume (exportSettings);
+
+                        setStatusText (exportOk ? "Export complete." : "Export failed.");
+                        exportChooser.reset();
+                    });
                 });
             }
 
@@ -950,6 +1026,7 @@ namespace
         PreviewGrid grid;
         std::unique_ptr<juce::Component> actionBar;
         std::unique_ptr<juce::Component> statusArea;
+        std::unique_ptr<juce::FileChooser> exportChooser;
         int focusedSliceIndex = -1;
     };
 

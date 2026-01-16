@@ -1,1250 +1,254 @@
-#include "MutationOrchestrator.h"
-
+#include "PreviewChainOrchestrator.h"
+#include "AudioFileIO.h"
 #include <cmath>
 
-#include "AudioFileIO.h"
-#include "BackgroundWorker.h"
-#include "ExportOrchestrator.h"
-#include "PreviewChainOrchestrator.h"
-#include "SliceInfrastructure.h"
+namespace
+{
+    constexpr float kDefaultVolume = 0.75f;
 
-namespace {
-    constexpr double kTargetSampleRate = 44100.0;
-    const juce::Array<int> kAllowedSubdivisionsSteps = { 8, 4, 2, 1 };
-    constexpr int kPachinkoStutterCountMin = 2;
-    constexpr int kPachinkoStutterCountMax = 8;
-    constexpr float kPachinkoVolumeReductionMin = 0.0f;
-    constexpr float kPachinkoVolumeReductionMax = 0.6f;
-    constexpr float kPachinkoPitchShiftMin = -12.0f;
-    constexpr float kPachinkoPitchShiftMax = 12.0f;
-
-    double resolvedBpm (double bpm)
+    float sliderValueToDb (float value)
     {
-        if (bpm <= 0.0)
-            return 128.0;
+        if (value <= 0.75f)
+            return (40.0f / 0.75f) * value - 40.0f;
 
-        return bpm;
+        return 32.0f * value - 24.0f;
     }
 
-    double secondsPerBeat (double bpm)
+    float dbToLinear (float db)
     {
-        return 60.0 / resolvedBpm (bpm);
+        return std::pow (10.0f, db / 20.0f);
     }
 
-    int barWindowFrames (double bpm)
+    float volumeSettingToGain (const SliceStateStore::SliceVolumeSetting& setting)
     {
-        const double seconds = secondsPerBeat (bpm) * 4.0;
-        return static_cast<int> (std::lround (seconds * kTargetSampleRate));
+        if (setting.isMuted)
+            return 0.0f;
+
+        return dbToLinear (sliderValueToDb (setting.volume));
     }
 
-    double subdivisionToQuarterNotes (int subdivisionSteps)
+    bool buildChainFile (const std::vector<juce::File>& previewSnippetURLs,
+                         const std::vector<SliceStateStore::SliceVolumeSetting>& sliceVolumeSettings,
+                         int chainCount,
+                         bool applyVolume,
+                         const juce::File& chainFile)
     {
-        switch (subdivisionSteps)
+        if (previewSnippetURLs.empty() || chainCount <= 0)
+            return false;
+
+        AudioFileIO audioFileIO;
+        std::vector<juce::AudioBuffer<float>> snippetBuffers;
+        snippetBuffers.reserve (static_cast<std::size_t> (chainCount));
+
+        int totalSamples = 0;
+
+        for (int i = 0; i < chainCount; ++i)
         {
-            case 8: return 8.0;  // half bar
-            case 4: return 4.0;  // quarter bar (one beat)
-            case 2: return 2.0;  // eighth note
-            case 1: return 1.0;  // sixteenth note
-            default: break;
+            const auto& snippetFile = previewSnippetURLs[static_cast<std::size_t> (i)];
+            AudioFileIO::ConvertedAudio snippetAudio;
+            juce::String formatDescription;
+
+            if (! audioFileIO.readToMonoBuffer (snippetFile, snippetAudio, formatDescription))
+                return false;
+
+            if (applyVolume)
+            {
+                const auto setting = i < static_cast<int> (sliceVolumeSettings.size())
+                                         ? sliceVolumeSettings[static_cast<std::size_t> (i)]
+                                         : SliceStateStore::SliceVolumeSetting { kDefaultVolume, false };
+                snippetAudio.buffer.applyGain (volumeSettingToGain (setting));
+            }
+
+            totalSamples += snippetAudio.buffer.getNumSamples();
+            snippetBuffers.push_back (std::move (snippetAudio.buffer));
         }
 
-        return 4.0;
-    }
+        if (totalSamples <= 0)
+            return false;
 
-    int resolvedSubdivision (int subdivisionSteps)
-    {
-        for (const int step : kAllowedSubdivisionsSteps)
-        {
-            if (step == subdivisionSteps)
-                return step;
-        }
-
-        return 4;
-    }
-
-    int randomSubdivision (juce::Random& random)
-    {
-        const int index = random.nextInt (kAllowedSubdivisionsSteps.size());
-        return kAllowedSubdivisionsSteps[index];
-    }
-
-    std::vector<int> buildRandomSubdivisions (int count)
-    {
-        std::vector<int> subdivisions;
-        subdivisions.reserve (static_cast<std::size_t> (count));
-        juce::Random random;
-        for (int i = 0; i < count; ++i)
-            subdivisions.push_back (randomSubdivision (random));
-        return subdivisions;
-    }
-
-    juce::File getLiveRecordingsDirectory()
-    {
-        auto baseDir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
-        if (baseDir == juce::File())
-            return juce::File();
-
-        return baseDir.getChildFile ("LiveRecordings");
-    }
-
-    std::vector<juce::File> loadActiveLiveModuleFiles()
-    {
-        const auto liveDir = getLiveRecordingsDirectory();
-        if (liveDir == juce::File())
-            return {};
-
-        const auto metadataFile = liveDir.getChildFile ("liveModules.json");
-        if (! metadataFile.existsAsFile())
-            return {};
-
-        const auto parsed = juce::JSON::parse (metadataFile.loadFileAsString());
-        auto* array = parsed.getArray();
-        if (array == nullptr)
-            return {};
-
-        std::vector<juce::File> liveFiles;
-        for (const auto& entry : *array)
-        {
-            auto* object = entry.getDynamicObject();
-            if (object == nullptr)
-                continue;
-
-            const bool isActive = static_cast<bool> (object->getProperty ("isActive"));
-            if (! isActive)
-                continue;
-
-            const juce::String filePath = object->getProperty ("filePath").toString();
-            if (filePath.isEmpty())
-                continue;
-
-            juce::File file (filePath);
-            if (file.existsAsFile())
-                liveFiles.push_back (file);
-        }
-
-        return liveFiles;
-    }
-
-    int subdivisionToFrameCount (double bpm, int subdivisionSteps)
-    {
-        const double quarterNotes = subdivisionToQuarterNotes (subdivisionSteps);
-        const double durationSeconds = secondsPerBeat (bpm) * (quarterNotes / 4.0);
-        return static_cast<int> (std::lround (durationSeconds * kTargetSampleRate));
-    }
-
-    int noGoZoneFrames (double bpm)
-    {
-        const double seconds = std::ceil (secondsPerBeat (bpm) * 8.0);
-        return static_cast<int> (std::lround (seconds * kTargetSampleRate));
-    }
-
-    int startFrameFromFraction (float fraction, int totalFrames)
-    {
-        if (totalFrames <= 0)
-            return 0;
-
-        const float clampedFraction = juce::jlimit (0.0f, 1.0f, fraction);
-        int startFrame = static_cast<int> (std::floor (clampedFraction * static_cast<float> (totalFrames)));
-        if (startFrame >= totalFrames)
-            startFrame = totalFrames - 1;
-
-        return juce::jmax (0, startFrame);
-    }
-
-    float semitonesToRatio (float semitones)
-    {
-        return static_cast<float> (std::pow (2.0f, semitones / 12.0f));
-    }
-
-    juce::AudioBuffer<float> buildStutteredBuffer (const juce::AudioBuffer<float>& input,
-                                                   int stutterCount,
-                                                   float volumeReductionStep,
-                                                   float pitchShiftSemitones,
-                                                   bool truncateEnabled,
-                                                   float startFraction)
-    {
-        const int totalFrames = input.getNumSamples();
-        if (totalFrames <= 0)
-            return input;
-
-        if (stutterCount <= 0)
-            return input;
-
-        const int startFrame = startFrameFromFraction (startFraction, totalFrames);
-        const int remainingFrames = totalFrames - startFrame;
-        if (remainingFrames <= 0)
-            return input;
-
-        const int segmentLength = juce::jmax (1, (remainingFrames + stutterCount - 1) / stutterCount);
-        const int targetFrames = truncateEnabled ? (segmentLength * stutterCount) : totalFrames;
-
-        juce::AudioBuffer<float> output (1, targetFrames);
-        output.clear();
-
-        const float* inputData = input.getReadPointer (0);
-        float* outputData = output.getWritePointer (0);
+        juce::AudioBuffer<float> chainBuffer (1, totalSamples);
+        chainBuffer.clear();
 
         int writePosition = 0;
-        if (! truncateEnabled && startFrame > 0)
+        for (const auto& snippetBuffer : snippetBuffers)
         {
-            output.copyFrom (0, 0, input, 0, 0, startFrame);
-            writePosition = startFrame;
+            const int samplesToCopy = snippetBuffer.getNumSamples();
+            chainBuffer.copyFrom (0, writePosition, snippetBuffer, 0, 0, samplesToCopy);
+            writePosition += samplesToCopy;
         }
 
-        const float pitchRatio = semitonesToRatio (pitchShiftSemitones);
-        const float safePitchRatio = pitchRatio > 0.0f ? pitchRatio : 1.0f;
+        AudioFileIO::ConvertedAudio chainAudio;
+        chainAudio.buffer = std::move (chainBuffer);
+        chainAudio.sampleRate = 44100.0;
 
-        for (int repeatIndex = 0; repeatIndex < stutterCount && writePosition < targetFrames; ++repeatIndex)
-        {
-            const float gain = juce::jmax (0.0f, 1.0f - volumeReductionStep * static_cast<float> (repeatIndex));
-            double position = 0.0;
-
-            for (int s = 0; s < segmentLength && writePosition < targetFrames; ++s)
-            {
-                const int baseIndex = static_cast<int> (position) % segmentLength;
-                const int nextIndex = (baseIndex + 1) % segmentLength;
-                const float frac = static_cast<float> (position - std::floor (position));
-
-                const int sourceIndex = startFrame + baseIndex;
-                const int sourceNextIndex = startFrame + nextIndex;
-                const float sampleA = inputData[juce::jmin (sourceIndex, totalFrames - 1)];
-                const float sampleB = inputData[juce::jmin (sourceNextIndex, totalFrames - 1)];
-
-                const float sample = sampleA + (sampleB - sampleA) * frac;
-                outputData[writePosition] = sample * gain;
-                ++writePosition;
-
-                position += safePitchRatio;
-                while (position >= static_cast<double> (segmentLength))
-                    position -= static_cast<double> (segmentLength);
-            }
-        }
-
-        return output;
-    }
-
-    void reverseMonoBuffer (juce::AudioBuffer<float>& buffer)
-    {
-        const int totalFrames = buffer.getNumSamples();
-        if (totalFrames <= 1)
-            return;
-
-        float* data = buffer.getWritePointer (0);
-        for (int left = 0, right = totalFrames - 1; left < right; ++left, --right)
-            std::swap (data[left], data[right]);
+        return audioFileIO.writeMonoWav16 (chainFile, chainAudio);
     }
 }
 
-MutationOrchestrator::MutationOrchestrator (SliceStateStore& store)
+PreviewChainOrchestrator::PreviewChainOrchestrator (SliceStateStore& store)
     : stateStore (store)
 {
 }
 
-void MutationOrchestrator::setCaching (bool cachingState)
+bool PreviewChainOrchestrator::rebuildPreviewChain() const
 {
-    caching.store (cachingState);
-}
-
-bool MutationOrchestrator::isCaching() const
-{
-    return caching.load();
-}
-
-bool MutationOrchestrator::requestResliceSingle (int index)
-{
-    if (! guardMutation())
+    const auto snapshot = stateStore.getSnapshot();
+    if (snapshot.previewSnippetURLs.empty())
         return false;
 
-    if (! validateIndex (index))
-        return false;
+    auto previewSnippetURLs = snapshot.previewSnippetURLs;
+    auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
 
-    if (! validateAlignment())
-        return false;
+    const bool layeringMode = snapshot.layeringMode;
+    const int sampleCount = snapshot.sampleCount;
+    const SliceStateStore::MergeMode mergeMode = snapshot.mergeMode;
 
-    BackgroundWorker worker;
-    bool rebuildOk = false;
-
-    worker.enqueue ([&]
+    if (layeringMode)
     {
-        const auto snapshot = stateStore.getSnapshot();
-        if (index < 0 || index >= static_cast<int> (snapshot.sliceInfos.size()))
-            return;
+        if (sampleCount <= 0 || static_cast<int> (previewSnippetURLs.size()) != sampleCount * 2)
+            return false;
 
-        auto sliceInfos = snapshot.sliceInfos;
-        auto previewSnippetURLs = snapshot.previewSnippetURLs;
-        auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
-        const double bpm = snapshot.bpm;
-        const int subdivisionSteps = resolvedSubdivision (snapshot.subdivisionSteps);
-        const bool transientDetectEnabled = snapshot.transientDetectionEnabled;
-
-        const bool layeringMode = snapshot.layeringMode;
-        const int sampleCount = snapshot.sampleCountSetting;
-        if (layeringMode)
+        juce::Random random;
+        for (int i = 0; i < sampleCount; ++i)
         {
-            if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
-                return;
-        }
-
-        const int logicalIndex = layeringMode ? (index % sampleCount) : index;
-        const int leftIndex = logicalIndex;
-        const int rightIndex = layeringMode ? logicalIndex + sampleCount : -1;
-
-        auto resliceIndex = [&] (int targetIndex)
-        {
-            const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
-            const juce::File sourceFile = sliceInfo.fileURL;
+            const auto& leftFile = previewSnippetURLs[static_cast<std::size_t> (i)];
+            const auto& rightFile = previewSnippetURLs[static_cast<std::size_t> (i + sampleCount)];
 
             AudioFileIO audioFileIO;
+            AudioFileIO::ConvertedAudio leftAudio;
+            AudioFileIO::ConvertedAudio rightAudio;
             juce::String formatDescription;
 
-            int fileDurationFrames = 0;
-            if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
+            if (! audioFileIO.readToMonoBuffer (leftFile, leftAudio, formatDescription))
                 return false;
 
-            const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
-
-            juce::Random random;
-            int startFrame = random.nextInt (maxCandidateStart + 1);
-
-            const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
-            const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (targetIndex)];
-
-            if (transientDetectEnabled)
-            {
-                AudioFileIO::ConvertedAudio converted;
-                if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
-                    return false;
-
-                const auto refined = refinedStart (converted.buffer,
-                                                   startFrame,
-                                                   barWindowFrames (bpm),
-                                                   transientDetectEnabled);
-                if (refined.has_value())
-                    startFrame = refined.value();
-
-                fileDurationFrames = converted.buffer.getNumSamples();
-                if (startFrame + snippetFrameCount > fileDurationFrames)
-                    return false;
-
-                juce::AudioBuffer<float> sliceBuffer (1, snippetFrameCount);
-                sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, snippetFrameCount);
-
-                AudioFileIO::ConvertedAudio sliceAudio;
-                sliceAudio.buffer = std::move (sliceBuffer);
-                sliceAudio.sampleRate = kTargetSampleRate;
-
-                if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
-                    return false;
-            }
-            else
-            {
-                if (startFrame + snippetFrameCount > fileDurationFrames)
-                    return false;
-
-                AudioFileIO::ConvertedAudio sliceAudio;
-                if (! audioFileIO.readToMonoBufferSegment (sourceFile, startFrame, snippetFrameCount, sliceAudio, formatDescription))
-                    return false;
-
-                if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
-                    return false;
-            }
-
-            SliceStateStore::SliceInfo updatedInfo = sliceInfo;
-            updatedInfo.startFrame = startFrame;
-            updatedInfo.snippetFrameCount = snippetFrameCount;
-            sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
-            return true;
-        };
-
-        if (! resliceIndex (leftIndex))
-            return;
-
-        if (layeringMode && rightIndex >= 0)
-        {
-            if (! resliceIndex (rightIndex))
-                return;
-        }
-
-        stateStore.setAlignedSlices (std::move (sliceInfos),
-                                     std::move (previewSnippetURLs),
-                                     std::move (sliceVolumeSettings));
-
-        PreviewChainOrchestrator previewChain (stateStore);
-        rebuildOk = previewChain.rebuildPreviewChain();
-        if (rebuildOk)
-            clearStutterUndoBackup();
-    });
-
-    return rebuildOk;
-}
-
-bool MutationOrchestrator::requestResliceAll()
-{
-    if (! guardMutation())
-        return false;
-
-    if (! validateAlignment())
-        return false;
-
-    BackgroundWorker worker;
-    bool rebuildOk = false;
-
-    worker.enqueue ([&]
-    {
-        const auto snapshot = stateStore.getSnapshot();
-        auto sliceInfos = snapshot.sliceInfos;
-        auto previewSnippetURLs = snapshot.previewSnippetURLs;
-        auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
-        const double bpm = snapshot.bpm;
-        const int subdivisionSteps = resolvedSubdivision (snapshot.subdivisionSteps);
-        const bool transientDetectEnabled = snapshot.transientDetectionEnabled;
-
-        if (sliceInfos.empty())
-            return;
-
-        const bool layeringMode = snapshot.layeringMode;
-        const int sampleCount = snapshot.sampleCountSetting;
-        if (layeringMode)
-        {
-            if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
-                return;
-        }
-
-        AudioFileIO audioFileIO;
-        juce::Random random;
-
-        const int loopCount = layeringMode ? sampleCount : static_cast<int> (sliceInfos.size());
-        for (int logicalIndex = 0; logicalIndex < loopCount; ++logicalIndex)
-        {
-            const int leftIndex = logicalIndex;
-            const int rightIndex = layeringMode ? logicalIndex + sampleCount : -1;
-
-            auto resliceIndex = [&] (int targetIndex)
-            {
-            const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
-            const juce::File sourceFile = sliceInfo.fileURL;
-
-            juce::String formatDescription;
-
-            int fileDurationFrames = 0;
-            if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
+            if (! audioFileIO.readToMonoBuffer (rightFile, rightAudio, formatDescription))
                 return false;
 
-            const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
-            int startFrame = random.nextInt (maxCandidateStart + 1);
+            const int leftSamples = leftAudio.buffer.getNumSamples();
+            const int rightSamples = rightAudio.buffer.getNumSamples();
+            const int mergedSamples = juce::jmin (leftSamples, rightSamples);
 
-            const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
-            const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (targetIndex)];
+            if (mergedSamples <= 0)
+                return false;
 
-            if (transientDetectEnabled)
+            SliceStateStore::MergeMode selectedMode = mergeMode;
+            if (mergeMode == SliceStateStore::MergeMode::pachinko)
             {
-                AudioFileIO::ConvertedAudio converted;
-                if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
-                    return false;
+                const int modeIndex = random.nextInt (5);
+                switch (modeIndex)
+                {
+                    case 0: selectedMode = SliceStateStore::MergeMode::none; break;
+                    case 1: selectedMode = SliceStateStore::MergeMode::fiftyFifty; break;
+                    case 2: selectedMode = SliceStateStore::MergeMode::quarterCuts; break;
+                    case 3: selectedMode = SliceStateStore::MergeMode::crossfade; break;
+                    case 4: selectedMode = SliceStateStore::MergeMode::crossfadeReverse; break;
+                    default: selectedMode = SliceStateStore::MergeMode::none; break;
+                }
+            }
 
-                const auto refined = refinedStart (converted.buffer,
-                                                   startFrame,
-                                                   barWindowFrames (bpm),
-                                                   transientDetectEnabled);
-                if (refined.has_value())
-                    startFrame = refined.value();
+            juce::AudioBuffer<float> mergedBuffer (1, mergedSamples);
+            const float* leftData = leftAudio.buffer.getReadPointer (0);
+            const float* rightData = rightAudio.buffer.getReadPointer (0);
+            float* mergedData = mergedBuffer.getWritePointer (0);
 
-                fileDurationFrames = converted.buffer.getNumSamples();
-                if (startFrame + snippetFrameCount > fileDurationFrames)
-                    return false;
-
-                juce::AudioBuffer<float> sliceBuffer (1, snippetFrameCount);
-                sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, snippetFrameCount);
-
-                AudioFileIO::ConvertedAudio sliceAudio;
-                sliceAudio.buffer = std::move (sliceBuffer);
-                sliceAudio.sampleRate = kTargetSampleRate;
-
-                if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
-                    return false;
+            if (selectedMode == SliceStateStore::MergeMode::none)
+            {
+                for (int s = 0; s < mergedSamples; ++s)
+                    mergedData[s] = leftData[s];
+            }
+            else if (selectedMode == SliceStateStore::MergeMode::fiftyFifty)
+            {
+                for (int s = 0; s < mergedSamples; ++s)
+                    mergedData[s] = 0.5f * (leftData[s] + rightData[s]);
+            }
+            else if (selectedMode == SliceStateStore::MergeMode::quarterCuts)
+            {
+                const int quarter = juce::jmax (1, mergedSamples / 4);
+                for (int s = 0; s < mergedSamples; ++s)
+                {
+                    const int segment = (s / quarter) % 2;
+                    mergedData[s] = segment == 0 ? leftData[s] : rightData[s];
+                }
             }
             else
             {
-                if (startFrame + snippetFrameCount > fileDurationFrames)
-                    return false;
-
-                AudioFileIO::ConvertedAudio sliceAudio;
-                if (! audioFileIO.readToMonoBufferSegment (sourceFile, startFrame, snippetFrameCount, sliceAudio, formatDescription))
-                    return false;
-
-                if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
-                    return false;
-            }
-
-            SliceStateStore::SliceInfo updatedInfo = sliceInfo;
-            updatedInfo.startFrame = startFrame;
-            updatedInfo.snippetFrameCount = snippetFrameCount;
-            sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
-            return true;
-        };
-
-            if (! resliceIndex (leftIndex))
-                continue;
-
-            if (layeringMode && rightIndex >= 0)
-            {
-                if (! resliceIndex (rightIndex))
-                    continue;
-            }
-        }
-
-        stateStore.setAlignedSlices (std::move (sliceInfos),
-                                     std::move (previewSnippetURLs),
-                                     std::move (sliceVolumeSettings));
-
-        PreviewChainOrchestrator previewChain (stateStore);
-        rebuildOk = previewChain.rebuildPreviewChain();
-        if (rebuildOk)
-            clearStutterUndoBackup();
-    });
-
-    return rebuildOk;
-}
-
-bool MutationOrchestrator::requestSliceAll()
-{
-    if (! guardMutation())
-        return false;
-
-    BackgroundWorker worker;
-    bool rebuildOk = false;
-
-    worker.enqueue ([&]
-    {
-        const auto snapshot = stateStore.getSnapshot();
-        const auto& cacheData = snapshot.cacheData;
-
-        const bool layeringMode = snapshot.layeringMode;
-        const int sampleCount = snapshot.sampleCountSetting;
-        const int targetCount = layeringMode ? sampleCount * 2 : sampleCount;
-        if (targetCount <= 0)
-            return;
-
-        std::vector<SliceStateStore::SliceInfo> sliceInfos;
-        std::vector<juce::File> previewSnippetURLs;
-        std::vector<SliceStateStore::SliceVolumeSetting> sliceVolumeSettings;
-        sliceInfos.reserve (static_cast<std::size_t> (targetCount));
-        previewSnippetURLs.reserve (static_cast<std::size_t> (targetCount));
-        sliceVolumeSettings.reserve (static_cast<std::size_t> (targetCount));
-
-        const double bpm = snapshot.bpm;
-        const int defaultSubdivision = resolvedSubdivision (snapshot.subdivisionSteps);
-
-        std::vector<int> subdivisions;
-        if (snapshot.randomSubdivisionEnabled)
-        {
-            if (layeringMode)
-            {
-                auto baseSubdivisions = buildRandomSubdivisions (sampleCount);
-                subdivisions.reserve (baseSubdivisions.size() * 2);
-                subdivisions.insert (subdivisions.end(), baseSubdivisions.begin(), baseSubdivisions.end());
-                subdivisions.insert (subdivisions.end(), baseSubdivisions.begin(), baseSubdivisions.end());
-            }
-            else
-            {
-                subdivisions = buildRandomSubdivisions (targetCount);
-            }
-        }
-
-        auto subdivisionForIndex = [&] (int index)
-        {
-            if (! subdivisions.empty())
-                return subdivisions[static_cast<std::size_t> (index)];
-            return defaultSubdivision;
-        };
-
-        juce::Array<AudioCacheStore::CacheEntry> availableEntries;
-        std::vector<juce::File> liveFiles;
-
-        switch (snapshot.sourceMode)
-        {
-            case SliceStateStore::SourceMode::multi:
-            {
-                for (const auto& entry : cacheData.entries)
+                juce::AudioBuffer<float> rightWorking (1, mergedSamples);
+                rightWorking.copyFrom (0, 0, rightAudio.buffer, 0, 0, mergedSamples);
+                if (selectedMode == SliceStateStore::MergeMode::crossfadeReverse)
                 {
-                    if (entry.isCandidate)
-                        availableEntries.add (entry);
+                    float* rightDataMutable = rightWorking.getWritePointer (0);
+                    for (int s = 0; s < mergedSamples / 2; ++s)
+                        std::swap (rightDataMutable[s], rightDataMutable[mergedSamples - 1 - s]);
                 }
-                break;
-            }
-            case SliceStateStore::SourceMode::singleRandom:
-            {
-                for (const auto& entry : cacheData.entries)
-                {
-                    if (entry.isCandidate)
-                        availableEntries.add (entry);
-                }
-                if (! availableEntries.isEmpty())
-                {
-                    juce::Random random;
-                    const int selectedIndex = random.nextInt (availableEntries.size());
-                    const auto selected = availableEntries[selectedIndex];
-                    availableEntries.clear();
-                    availableEntries.add (selected);
-                }
-                break;
-            }
-            case SliceStateStore::SourceMode::singleManual:
-            {
-                if (! snapshot.sourceFile.existsAsFile())
-                    return;
-                break;
-            }
-            case SliceStateStore::SourceMode::live:
-            {
-                liveFiles = loadActiveLiveModuleFiles();
-                break;
-            }
-        }
 
-        if (snapshot.sourceMode == SliceStateStore::SourceMode::live)
-        {
-            if (liveFiles.empty())
-                return;
-        }
-        else if (snapshot.sourceMode == SliceStateStore::SourceMode::singleManual)
-        {
-            if (! snapshot.sourceFile.existsAsFile())
-                return;
-        }
-        else
-        {
-            if (availableEntries.isEmpty())
-                return;
-        }
-
-        AudioFileIO audioFileIO;
-        juce::Random random;
-        const int entryCount = availableEntries.size();
-
-        for (int index = 0; index < targetCount; ++index)
-        {
-            bool added = false;
-            for (int attempt = 0; attempt < 5 && ! added; ++attempt)
-            {
-                juce::File sourceFile;
-                if (snapshot.sourceMode == SliceStateStore::SourceMode::singleManual)
+                const float* rightBlend = rightWorking.getReadPointer (0);
+                if (mergedSamples == 1)
                 {
-                    sourceFile = snapshot.sourceFile;
-                }
-                else if (snapshot.sourceMode == SliceStateStore::SourceMode::live)
-                {
-                    if (liveFiles.empty())
-                        return;
-                    sourceFile = liveFiles[static_cast<std::size_t> (random.nextInt (static_cast<int> (liveFiles.size())))];
+                    mergedData[0] = 0.5f * (leftData[0] + rightBlend[0]);
                 }
                 else
                 {
-                    const int entryIndex = random.nextInt (entryCount);
-                    const auto& entry = availableEntries.getReference (entryIndex);
-                    sourceFile = juce::File (entry.path);
+                    for (int s = 0; s < mergedSamples; ++s)
+                    {
+                        const float t = static_cast<float> (s) / static_cast<float> (mergedSamples - 1);
+                        mergedData[s] = (1.0f - t) * leftData[s] + t * rightBlend[s];
+                    }
                 }
-
-                if (! sourceFile.existsAsFile())
-                    continue;
-
-                juce::String formatDescription;
-
-                int fileDurationFrames = 0;
-                if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
-                    continue;
-
-                if (fileDurationFrames <= 0)
-                    continue;
-
-                const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
-                int startFrame = random.nextInt (maxCandidateStart + 1);
-                const int subdivisionSteps = subdivisionForIndex (index);
-                const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
-                if (snippetFrameCount <= 0)
-                    continue;
-
-                const juce::File outputFile = sourceFile.getSiblingFile ("slice_" + juce::String (index) + ".wav");
-
-                if (snapshot.transientDetectionEnabled)
-                {
-                    AudioFileIO::ConvertedAudio converted;
-                    if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
-                        continue;
-
-                    const auto refined = refinedStart (converted.buffer,
-                                                       startFrame,
-                                                       barWindowFrames (bpm),
-                                                       snapshot.transientDetectionEnabled);
-                    if (refined.has_value())
-                        startFrame = refined.value();
-
-                    fileDurationFrames = converted.buffer.getNumSamples();
-                    if (startFrame + snippetFrameCount > fileDurationFrames)
-                        continue;
-
-                    juce::AudioBuffer<float> sliceBuffer (1, snippetFrameCount);
-                    sliceBuffer.copyFrom (0, 0, converted.buffer, 0, startFrame, snippetFrameCount);
-
-                    AudioFileIO::ConvertedAudio sliceAudio;
-                    sliceAudio.buffer = std::move (sliceBuffer);
-                    sliceAudio.sampleRate = kTargetSampleRate;
-
-                    if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
-                        continue;
-                }
-                else
-                {
-                    if (startFrame + snippetFrameCount > fileDurationFrames)
-                        continue;
-
-                    AudioFileIO::ConvertedAudio sliceAudio;
-                    if (! audioFileIO.readToMonoBufferSegment (sourceFile, startFrame, snippetFrameCount, sliceAudio, formatDescription))
-                        continue;
-
-                    if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
-                        continue;
-                }
-
-                SliceStateStore::SliceInfo info;
-                info.fileURL = sourceFile;
-                info.startFrame = startFrame;
-                info.subdivisionSteps = subdivisionSteps;
-                info.snippetFrameCount = snippetFrameCount;
-
-                sliceInfos.push_back (info);
-                previewSnippetURLs.push_back (outputFile);
-                sliceVolumeSettings.push_back ({ 0.75f, false });
-                added = true;
             }
 
-            if (! added)
-                return;
-        }
+            const juce::File mergedFile = leftFile.getSiblingFile ("merged_" + juce::String (i) + ".wav");
 
-        stateStore.setAlignedSlices (std::move (sliceInfos),
-                                     std::move (previewSnippetURLs),
-                                     std::move (sliceVolumeSettings));
-        stateStore.setLayeringState (layeringMode, sampleCount);
+            AudioFileIO::ConvertedAudio mergedAudio;
+            mergedAudio.buffer = std::move (mergedBuffer);
+            mergedAudio.sampleRate = 44100.0;
 
-        PreviewChainOrchestrator previewChain (stateStore);
-        rebuildOk = previewChain.rebuildPreviewChain();
-        if (rebuildOk)
-            clearStutterUndoBackup();
-    });
-
-    return rebuildOk;
-}
-
-bool MutationOrchestrator::requestRegenerateSingle (int index)
-{
-    if (! guardMutation())
-        return false;
-
-    if (! validateIndex (index))
-        return false;
-
-    if (! validateAlignment())
-        return false;
-
-    BackgroundWorker worker;
-    bool rebuildOk = false;
-
-    worker.enqueue ([&]
-    {
-        const auto snapshot = stateStore.getSnapshot();
-        if (index < 0 || index >= static_cast<int> (snapshot.sliceInfos.size()))
-            return;
-
-        auto sliceInfos = snapshot.sliceInfos;
-        auto previewSnippetURLs = snapshot.previewSnippetURLs;
-        auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
-        const double bpm = snapshot.bpm;
-        const int subdivisionSteps = resolvedSubdivision (snapshot.subdivisionSteps);
-
-        const bool layeringMode = snapshot.layeringMode;
-        const int sampleCount = snapshot.sampleCountSetting;
-        if (layeringMode)
-        {
-            if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
-                return;
-        }
-
-        const int logicalIndex = layeringMode ? (index % sampleCount) : index;
-        const int leftIndex = logicalIndex;
-        const int rightIndex = layeringMode ? logicalIndex + sampleCount : -1;
-
-        auto regenerateIndex = [&] (int targetIndex)
-        {
-            const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
-            const juce::File sourceFile = sliceInfo.fileURL;
-            const int startFrame = sliceInfo.startFrame;
-            const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
-
-            juce::String formatDescription;
-
-            const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (targetIndex)];
-
-            AudioFileIO audioFileIO;
-            int fileDurationFrames = 0;
-            if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
+            if (! audioFileIO.writeMonoWav16 (mergedFile, mergedAudio))
                 return false;
 
-            AudioFileIO::ConvertedAudio sliceAudio;
-            if (startFrame + snippetFrameCount > fileDurationFrames)
-                return false;
-
-            if (! audioFileIO.readToMonoBufferSegment (sourceFile, startFrame, snippetFrameCount, sliceAudio, formatDescription))
-                return false;
-
-            if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
-                return false;
-
-            SliceStateStore::SliceInfo updatedInfo = sliceInfo;
-            updatedInfo.snippetFrameCount = snippetFrameCount;
-            sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
-            return true;
-        };
-
-        if (! regenerateIndex (leftIndex))
-            return;
-
-        if (layeringMode && rightIndex >= 0)
-        {
-            if (! regenerateIndex (rightIndex))
-                return;
+            previewSnippetURLs[static_cast<std::size_t> (i)] = mergedFile;
         }
 
-        stateStore.setAlignedSlices (std::move (sliceInfos),
-                                     std::move (previewSnippetURLs),
-                                     std::move (sliceVolumeSettings));
+        stateStore.setAlignedSlices (snapshot.sliceInfos,
+                                     previewSnippetURLs,
+                                     sliceVolumeSettings);
+    }
 
-        PreviewChainOrchestrator previewChain (stateStore);
-        rebuildOk = previewChain.rebuildPreviewChain();
-        if (rebuildOk)
-            clearStutterUndoBackup();
-    });
+    const int chainCount = layeringMode ? sampleCount : static_cast<int> (previewSnippetURLs.size());
 
-    return rebuildOk;
+    const juce::File previewChainFile =
+        previewSnippetURLs.front().getSiblingFile ("preview_chain.wav");
+
+    if (! buildChainFile (previewSnippetURLs, sliceVolumeSettings, chainCount, false, previewChainFile))
+        return false;
+
+    stateStore.setPreviewChainURL (previewChainFile);
+
+    return true;
 }
 
-bool MutationOrchestrator::requestRegenerateAll()
+bool PreviewChainOrchestrator::rebuildLoopChainWithVolume() const
 {
-    if (! guardMutation())
-        return false;
-
-    if (! validateAlignment())
-        return false;
-
-    BackgroundWorker worker;
-    bool rebuildOk = false;
-
-    worker.enqueue ([&]
-    {
-        const auto snapshot = stateStore.getSnapshot();
-        auto sliceInfos = snapshot.sliceInfos;
-        auto previewSnippetURLs = snapshot.previewSnippetURLs;
-        auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
-        const double bpm = snapshot.bpm;
-        const int defaultSubdivision = resolvedSubdivision (snapshot.subdivisionSteps);
-
-        if (sliceInfos.empty())
-            return;
-
-        const bool layeringMode = snapshot.layeringMode;
-        const int sampleCount = snapshot.sampleCountSetting;
-        if (layeringMode)
-        {
-            if (sampleCount <= 0 || static_cast<int> (sliceInfos.size()) != sampleCount * 2)
-                return;
-        }
-
-        AudioFileIO audioFileIO;
-        juce::Random random;
-
-        const int loopCount = layeringMode ? sampleCount : static_cast<int> (sliceInfos.size());
-        for (int logicalIndex = 0; logicalIndex < loopCount; ++logicalIndex)
-        {
-            const int leftIndex = logicalIndex;
-            const int rightIndex = layeringMode ? logicalIndex + sampleCount : -1;
-
-            auto regenerateIndex = [&] (int targetIndex)
-            {
-                const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
-                const juce::File sourceFile = sliceInfo.fileURL;
-                const int startFrame = sliceInfo.startFrame;
-                const int subdivisionSteps =
-                    snapshot.randomSubdivisionEnabled ? randomSubdivision (random) : defaultSubdivision;
-                const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
-
-                juce::String formatDescription;
-
-                const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (targetIndex)];
-
-                int fileDurationFrames = 0;
-                if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
-                    return false;
-
-                AudioFileIO::ConvertedAudio sliceAudio;
-                if (startFrame + snippetFrameCount > fileDurationFrames)
-                    return false;
-
-                if (! audioFileIO.readToMonoBufferSegment (sourceFile, startFrame, snippetFrameCount, sliceAudio, formatDescription))
-                    return false;
-
-                if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
-                    return false;
-
-                SliceStateStore::SliceInfo updatedInfo = sliceInfo;
-                updatedInfo.snippetFrameCount = snippetFrameCount;
-                updatedInfo.subdivisionSteps = subdivisionSteps;
-                sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
-
-                return true;
-            };
-
-            if (! regenerateIndex (leftIndex))
-                continue;
-
-            if (layeringMode && rightIndex >= 0)
-            {
-                if (! regenerateIndex (rightIndex))
-                    continue;
-            }
-        }
-
-        stateStore.setAlignedSlices (std::move (sliceInfos),
-                                     std::move (previewSnippetURLs),
-                                     std::move (sliceVolumeSettings));
-
-        PreviewChainOrchestrator previewChain (stateStore);
-        rebuildOk = previewChain.rebuildPreviewChain();
-        if (rebuildOk)
-            clearStutterUndoBackup();
-    });
-
-    return rebuildOk;
-}
-
-bool MutationOrchestrator::requestStutterSingle (int index)
-{
-    if (! guardMutation())
-        return false;
-
-    if (! validateIndex (index))
-        return false;
-
-    if (! validateAlignment())
-        return false;
-
-    BackgroundWorker worker;
-    bool rebuildOk = false;
-
-    worker.enqueue ([&]
-    {
-        const auto snapshot = stateStore.getSnapshot();
-        if (index < 0 || index >= static_cast<int> (snapshot.previewSnippetURLs.size()))
-            return;
-
-        const juce::File targetFile = snapshot.previewSnippetURLs[static_cast<std::size_t> (index)];
-        if (! targetFile.existsAsFile())
-            return;
-
-        const juce::File backupFile = targetFile.getSiblingFile ("stutter_undo_" + juce::String (index) + ".wav");
-        if (! targetFile.copyFileTo (backupFile))
-            return;
-
-        stateStore.setStutterUndoBackupEntry (index, backupFile);
-        stutterUndoBackup = backupFile;
-
-        AudioFileIO audioFileIO;
-        AudioFileIO::ConvertedAudio converted;
-        juce::String formatDescription;
-
-        if (! audioFileIO.readToMonoBuffer (targetFile, converted, formatDescription))
-            return;
-
-        const auto stuttered = buildStutteredBuffer (converted.buffer,
-                                                     snapshot.stutterCount,
-                                                     snapshot.stutterVolumeReductionStep,
-                                                     snapshot.stutterPitchShiftSemitones,
-                                                     snapshot.stutterTruncateEnabled,
-                                                     snapshot.stutterStartFraction);
-
-        AudioFileIO::ConvertedAudio outputAudio;
-        outputAudio.buffer = stuttered;
-        outputAudio.sampleRate = converted.sampleRate;
-
-        if (! audioFileIO.writeMonoWav16 (targetFile, outputAudio))
-            return;
-
-        PreviewChainOrchestrator previewChain (stateStore);
-        rebuildOk = previewChain.rebuildPreviewChain();
-    });
-
-    return rebuildOk;
-}
-
-bool MutationOrchestrator::requestStutterUndo (int index)
-{
-    if (! guardMutation())
-        return false;
-
-    if (! validateIndex (index))
-        return false;
-
-    if (! validateAlignment())
-        return false;
-
-    BackgroundWorker worker;
-    bool rebuildOk = false;
-
-    worker.enqueue ([&]
-    {
-        const auto snapshot = stateStore.getSnapshot();
-        if (index < 0 || index >= static_cast<int> (snapshot.previewSnippetURLs.size()))
-            return;
-
-        const auto backupIt = snapshot.stutterUndoBackup.find (index);
-        if (backupIt == snapshot.stutterUndoBackup.end())
-            return;
-
-        const juce::File backupFile = backupIt->second;
-        if (! backupFile.existsAsFile())
-            return;
-
-        const juce::File targetFile = snapshot.previewSnippetURLs[static_cast<std::size_t> (index)];
-        if (! backupFile.copyFileTo (targetFile))
-            return;
-
-        PreviewChainOrchestrator previewChain (stateStore);
-        rebuildOk = previewChain.rebuildPreviewChain();
-    });
-
-    return rebuildOk;
-}
-
-bool MutationOrchestrator::requestPachinkoStutterAll()
-{
-    if (! guardMutation())
-        return false;
-
-    if (! validateAlignment())
-        return false;
-
-    BackgroundWorker worker;
-    bool rebuildOk = false;
-
-    worker.enqueue ([&]
-    {
-        const auto snapshot = stateStore.getSnapshot();
-        auto previewSnippetURLs = snapshot.previewSnippetURLs;
-        if (previewSnippetURLs.empty())
-            return;
-
-        AudioFileIO audioFileIO;
-        juce::Random random;
-
-        auto randomFloatInRange = [&] (float minValue, float maxValue)
-        {
-            return minValue + random.nextFloat() * (maxValue - minValue);
-        };
-
-        for (std::size_t index = 0; index < previewSnippetURLs.size(); ++index)
-        {
-            if (! random.nextBool())
-                continue;
-
-            const juce::File targetFile = previewSnippetURLs[index];
-            if (! targetFile.existsAsFile())
-                continue;
-
-            AudioFileIO::ConvertedAudio converted;
-            juce::String formatDescription;
-
-            if (! audioFileIO.readToMonoBuffer (targetFile, converted, formatDescription))
-                continue;
-
-            const int stutterCountRange = kPachinkoStutterCountMax - kPachinkoStutterCountMin + 1;
-            const int stutterCount = kPachinkoStutterCountMin + random.nextInt (stutterCountRange);
-            const float stutterVolumeReductionStep =
-                randomFloatInRange (kPachinkoVolumeReductionMin, kPachinkoVolumeReductionMax);
-            const float stutterPitchShiftSemitones =
-                randomFloatInRange (kPachinkoPitchShiftMin, kPachinkoPitchShiftMax);
-            const bool stutterTruncateEnabled = random.nextBool();
-            const float stutterStartFraction = random.nextFloat();
-
-            const auto stuttered = buildStutteredBuffer (converted.buffer,
-                                                         stutterCount,
-                                                         stutterVolumeReductionStep,
-                                                         stutterPitchShiftSemitones,
-                                                         stutterTruncateEnabled,
-                                                         stutterStartFraction);
-
-            AudioFileIO::ConvertedAudio outputAudio;
-            outputAudio.buffer = stuttered;
-            outputAudio.sampleRate = converted.sampleRate;
-
-            if (! audioFileIO.writeMonoWav16 (targetFile, outputAudio))
-                continue;
-        }
-
-        PreviewChainOrchestrator previewChain (stateStore);
-        rebuildOk = previewChain.rebuildPreviewChain();
-    });
-
-    return rebuildOk;
-}
-
-bool MutationOrchestrator::requestPachinkoReverseAll()
-{
-    if (! guardMutation())
-        return false;
-
-    if (! validateAlignment())
-        return false;
-
-    BackgroundWorker worker;
-    bool rebuildOk = false;
-
-    worker.enqueue ([&]
-    {
-        const auto snapshot = stateStore.getSnapshot();
-        if (snapshot.manualReverseEnabled)
-            return;
-
-        auto previewSnippetURLs = snapshot.previewSnippetURLs;
-        if (previewSnippetURLs.empty())
-            return;
-
-        AudioFileIO audioFileIO;
-        juce::Random random;
-
-        for (std::size_t index = 0; index < previewSnippetURLs.size(); ++index)
-        {
-            if (! random.nextBool())
-                continue;
-
-            const juce::File targetFile = previewSnippetURLs[index];
-            if (! targetFile.existsAsFile())
-                continue;
-
-            AudioFileIO::ConvertedAudio converted;
-            juce::String formatDescription;
-
-            if (! audioFileIO.readToMonoBuffer (targetFile, converted, formatDescription))
-                continue;
-
-            reverseMonoBuffer (converted.buffer);
-
-            AudioFileIO::ConvertedAudio outputAudio;
-            outputAudio.buffer = std::move (converted.buffer);
-            outputAudio.sampleRate = converted.sampleRate;
-
-            if (! audioFileIO.writeMonoWav16 (targetFile, outputAudio))
-                continue;
-        }
-
-        PreviewChainOrchestrator previewChain (stateStore);
-        rebuildOk = previewChain.rebuildPreviewChain();
-    });
-
-    return rebuildOk;
-}
-
-bool MutationOrchestrator::requestExportSlices (const std::optional<SliceStateStore::ExportSettings>& overrideSettings)
-{
-    if (! guardMutation())
-        return false;
-
-    if (! validateAlignment())
-        return false;
-
-    BackgroundWorker worker;
-    bool exportOk = false;
-
-    worker.enqueue ([&]
-    {
-        ExportOrchestrator exporter (stateStore);
-        exportOk = exporter.exportSlices (overrideSettings);
-    });
-
-    return exportOk;
-}
-
-bool MutationOrchestrator::requestExportFullChainWithoutVolume (const std::optional<SliceStateStore::ExportSettings>& overrideSettings)
-{
-    if (! guardMutation())
-        return false;
-
-    BackgroundWorker worker;
-    bool exportOk = false;
-
-    worker.enqueue ([&]
-    {
-        ExportOrchestrator exporter (stateStore);
-        exportOk = exporter.exportFullChainWithoutVolume (overrideSettings);
-    });
-
-    return exportOk;
-}
-
-bool MutationOrchestrator::requestExportFullChainWithVolume (const std::optional<SliceStateStore::ExportSettings>& overrideSettings)
-{
-    if (! guardMutation())
-        return false;
-
-    if (! validateAlignment())
-        return false;
-
-    BackgroundWorker worker;
-    bool exportOk = false;
-
-    worker.enqueue ([&]
-    {
-        ExportOrchestrator exporter (stateStore);
-        exportOk = exporter.exportFullChainWithVolume (overrideSettings);
-    });
-
-    return exportOk;
-}
-
-void MutationOrchestrator::clearStutterUndoBackup()
-{
-    stutterUndoBackup = juce::File();
-    stateStore.clearStutterUndoBackup();
-}
-
-bool MutationOrchestrator::hasStutterUndoBackup() const
-{
-    if (stutterUndoBackup != juce::File())
-        return true;
-
-    const auto snapshot = stateStore.getSnapshot();
-    return ! snapshot.stutterUndoBackup.empty();
-}
-
-bool MutationOrchestrator::guardMutation() const
-{
-    if (caching.load())
-        return false;
-
-    return ! stateStore.isCaching();
-}
-
-bool MutationOrchestrator::validateIndex (int index) const
-{
-    if (index < 0)
+    if (! rebuildPreviewChain())
         return false;
 
     const auto snapshot = stateStore.getSnapshot();
-    return index < static_cast<int> (snapshot.sliceInfos.size());
-}
+    if (snapshot.previewSnippetURLs.empty())
+        return false;
 
-bool MutationOrchestrator::validateAlignment() const
-{
-    const auto snapshot = stateStore.getSnapshot();
-    const std::size_t size = snapshot.sliceInfos.size();
-    return snapshot.previewSnippetURLs.size() == size
-        && snapshot.sliceVolumeSettings.size() == size;
+    const int chainCount = snapshot.layeringMode
+                               ? snapshot.sampleCount
+                               : static_cast<int> (snapshot.previewSnippetURLs.size());
+    const juce::File loopChainFile =
+        snapshot.previewSnippetURLs.front().getSiblingFile ("loop_chain.wav");
+
+    if (! buildChainFile (snapshot.previewSnippetURLs,
+                          snapshot.sliceVolumeSettings,
+                          chainCount,
+                          true,
+                          loopChainFile))
+        return false;
+
+    stateStore.setPreviewChainURL (loopChainFile);
+    return true;
 }

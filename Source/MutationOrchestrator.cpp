@@ -138,6 +138,15 @@ namespace {
         return static_cast<int> (std::lround (seconds * kTargetSampleRate));
     }
 
+    juce::File getPreviewTempFolder()
+    {
+        auto tempDir = juce::File::getSpecialLocation (juce::File::tempDirectory);
+        if (tempDir == juce::File())
+            return {};
+
+        return tempDir.getChildFile ("AudioSnippetPreview");
+    }
+
     int startFrameFromFraction (float fraction, int totalFrames)
     {
         if (totalFrames <= 0)
@@ -561,6 +570,13 @@ bool MutationOrchestrator::requestSliceAll()
         juce::Array<AudioCacheStore::CacheEntry> availableEntries;
         std::vector<juce::File> liveFiles;
 
+        const auto previewTempFolder = getPreviewTempFolder();
+        if (previewTempFolder == juce::File())
+            return;
+
+        previewTempFolder.deleteRecursively();
+        previewTempFolder.createDirectory();
+
         switch (snapshot.sourceMode)
         {
             case SliceStateStore::SourceMode::multi:
@@ -664,7 +680,7 @@ bool MutationOrchestrator::requestSliceAll()
                 if (snippetFrameCount <= 0)
                     continue;
 
-                const juce::File outputFile = sourceFile.getSiblingFile ("slice_" + juce::String (index) + ".wav");
+                const juce::File outputFile = previewTempFolder.getChildFile ("slice_" + juce::String (index) + ".wav");
 
                 if (snapshot.transientDetectionEnabled)
                 {

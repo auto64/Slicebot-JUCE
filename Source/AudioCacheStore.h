@@ -11,8 +11,8 @@ public:
     {
         juce::String path;
         double durationSeconds = 0.0;
-        double sampleRate = 0.0;
-        int numChannels = 0;
+        int64_t fileSizeBytes = 0;
+        int64_t lastModifiedMs = 0;
         bool isCandidate = true;
     };
 

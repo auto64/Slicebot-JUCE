@@ -488,12 +488,16 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
                     &cancelCache,
                     [this] (int current, int total)
                     {
-                        if (total <= 0)
-                            return;
-                        const float progress = static_cast<float> (current) / static_cast<float> (total);
-                        juce::MessageManager::callAsync ([this, current, total, progress]()
+                        const bool hasTotal = total > 0;
+                        const float progress = hasTotal
+                                                   ? static_cast<float> (current) / static_cast<float> (total)
+                                                   : 0.0f;
+                        juce::MessageManager::callAsync ([this, current, total, progress, hasTotal]()
                         {
-                            updateStatusText ("Recaching: " + juce::String (current) + " of " + juce::String (total) + " files processed.");
+                            if (hasTotal)
+                                updateStatusText ("Recaching: " + juce::String (current) + " of " + juce::String (total) + " files processed.");
+                            else
+                                updateStatusText ("Recaching: " + juce::String (current) + " files processed.");
                             updateProgress (progress);
                         });
                     },

@@ -9,8 +9,8 @@ static constexpr int kModuleW = 120;
 static constexpr int kModuleH = 150;
 static constexpr double kMinSeconds = 25.0;
 static constexpr double kMaxRecordSeconds = 600.0;
-static constexpr float kMinGainDb = -60.0f;
-static constexpr float kMaxGainDb = 6.0f;
+static constexpr float kMinGainDb = -40.0f;
+static constexpr float kMaxGainDb = 30.0f;
 
 // =====================================================
 // CONSTRUCTION

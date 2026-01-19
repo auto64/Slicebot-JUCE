@@ -6,6 +6,7 @@
 #include "PreviewChainOrchestrator.h"
 #include "RecordingModule.h"
 #include <cmath>
+#include <array>
 #include <optional>
 #include <vector>
 #include "AppProperties.h"
@@ -235,6 +236,167 @@ namespace
         std::function<void()> deleteModuleHandler;
     };
 
+    class SliceContextOverlay final : public juce::Component
+    {
+    public:
+        enum class Action
+        {
+            lock,
+            remove,
+            regen,
+            swap,
+            duplicate,
+            reverse
+        };
+
+        SliceContextOverlay()
+        {
+            setWantsKeyboardFocus (true);
+            setVisible (false);
+            setInterceptsMouseClicks (false, false);
+        }
+
+        void setActionHandler (std::function<void(Action, int)> handler)
+        {
+            actionHandler = std::move (handler);
+        }
+
+        void setDismissHandler (std::function<void()> handler)
+        {
+            dismissHandler = std::move (handler);
+        }
+
+        void showForCell (int indexToUse, juce::Rectangle<int> cellBoundsToUse)
+        {
+            targetIndex = indexToUse;
+            targetBounds = cellBoundsToUse;
+            setVisible (true);
+            setInterceptsMouseClicks (true, true);
+            toFront (false);
+            grabKeyboardFocus();
+            repaint();
+        }
+
+        void hide()
+        {
+            if (! isVisible())
+                return;
+
+            setVisible (false);
+            setInterceptsMouseClicks (false, false);
+            targetIndex = -1;
+            targetBounds = {};
+        }
+
+        bool isShowing() const
+        {
+            return isVisible() && targetIndex >= 0;
+        }
+
+        bool keyPressed (const juce::KeyPress& key) override
+        {
+            if (key == juce::KeyPress::escapeKey)
+            {
+                dismiss();
+                return true;
+            }
+            return false;
+        }
+
+        void mouseDown (const juce::MouseEvent& event) override
+        {
+            if (! isShowing())
+                return;
+
+            const auto position = event.getPosition();
+            if (! targetBounds.contains (position))
+            {
+                dismiss();
+                return;
+            }
+
+            const auto localBounds = targetBounds;
+            const int cols = 3;
+            const int rows = 2;
+            const int cellW = localBounds.getWidth() / cols;
+            const int cellH = localBounds.getHeight() / rows;
+            const int col = juce::jlimit (0, cols - 1, (position.x - localBounds.getX()) / cellW);
+            const int row = juce::jlimit (0, rows - 1, (position.y - localBounds.getY()) / cellH);
+            const int index = row * cols + col;
+
+            if (actionHandler != nullptr && targetIndex >= 0)
+                actionHandler (actionFromIndex (index), targetIndex);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            if (! isShowing())
+                return;
+
+            const auto bounds = targetBounds;
+            g.setColour (juce::Colour (0xdd2b2b2b));
+            g.fillRect (bounds);
+
+            g.setColour (juce::Colour (0xffcfcfcf));
+            g.drawRect (bounds, 1);
+
+            const int cols = 3;
+            const int rows = 2;
+            const int cellW = bounds.getWidth() / cols;
+            const int cellH = bounds.getHeight() / rows;
+            const auto labels = getActionLabels();
+
+            g.setFont (juce::Font (juce::FontOptions ("Helvetica", 11.0f, juce::Font::plain)));
+            for (int row = 0; row < rows; ++row)
+            {
+                for (int col = 0; col < cols; ++col)
+                {
+                    const int actionIndex = row * cols + col;
+                    juce::Rectangle<int> cell (bounds.getX() + col * cellW,
+                                               bounds.getY() + row * cellH,
+                                               cellW,
+                                               cellH);
+                    g.setColour (juce::Colour (0xff3d3d3d));
+                    g.drawRect (cell, 1);
+                    g.setColour (juce::Colours::white);
+                    g.drawFittedText (labels[actionIndex], cell, juce::Justification::centred, 1);
+                }
+            }
+        }
+
+    private:
+        void dismiss()
+        {
+            hide();
+            if (dismissHandler != nullptr)
+                dismissHandler();
+        }
+
+        static Action actionFromIndex (int index)
+        {
+            switch (index)
+            {
+                case 0: return Action::lock;
+                case 1: return Action::remove;
+                case 2: return Action::regen;
+                case 3: return Action::swap;
+                case 4: return Action::duplicate;
+                case 5: return Action::reverse;
+                default: return Action::lock;
+            }
+        }
+
+        static std::array<juce::String, 6> getActionLabels()
+        {
+            return { "LOCK", "DELETE", "REGEN", "SWAP", "DUPLICATE", "REVERSE" };
+        }
+
+        std::function<void(Action, int)> actionHandler;
+        std::function<void()> dismissHandler;
+        int targetIndex = -1;
+        juce::Rectangle<int> targetBounds;
+    };
+
     class LiveModuleContainer final : public juce::Component
     {
     public:
@@ -453,8 +615,24 @@ namespace
                               1);
         }
 
+        void mouseDown (const juce::MouseEvent& event) override
+        {
+            if (event.mods.isPopupMenu())
+            {
+                suppressClick = true;
+                if (onRightClick != nullptr)
+                    onRightClick (index);
+            }
+        }
+
         void mouseUp (const juce::MouseEvent&) override
         {
+            if (suppressClick)
+            {
+                suppressClick = false;
+                return;
+            }
+
             if (onClick != nullptr)
                 onClick (index);
         }
@@ -462,6 +640,11 @@ namespace
         void setClickHandler (std::function<void(int)> handler)
         {
             onClick = std::move (handler);
+        }
+
+        void setRightClickHandler (std::function<void(int)> handler)
+        {
+            onRightClick = std::move (handler);
         }
 
         void setSourceFile (const juce::File& file)
@@ -485,6 +668,8 @@ namespace
         juce::AudioThumbnail thumbnail;
         juce::File currentFile;
         std::function<void(int)> onClick;
+        std::function<void(int)> onRightClick;
+        bool suppressClick = false;
     };
 
     class PreviewGrid final : public juce::Component
@@ -507,6 +692,12 @@ namespace
                 cell->setClickHandler (handler);
         }
 
+        void setCellRightClickHandler (std::function<void(int)> handler)
+        {
+            for (auto* cell : cells)
+                cell->setRightClickHandler (handler);
+        }
+
         void setSliceFiles (const std::vector<juce::File>& files)
         {
             thumbnailCache.clear();
@@ -517,6 +708,14 @@ namespace
                 else
                     cells[index]->setSourceFile (juce::File());
             }
+        }
+
+        juce::Rectangle<int> getCellBounds (int index) const
+        {
+            if (index < 0 || index >= cells.size())
+                return {};
+
+            return cells[index]->getBounds();
         }
 
         void resized() override
@@ -760,6 +959,7 @@ namespace
         {
             addAndMakeVisible (focusPlaceholder);
             addAndMakeVisible (grid);
+            addChildComponent (contextOverlay);
             actionBar = std::make_unique<ActionBar>();
             statusArea = std::make_unique<StatusArea>();
             addAndMakeVisible (*actionBar);
@@ -926,6 +1126,7 @@ namespace
             grid.setCellClickHandler ([this] (int index)
             {
                 focusedSliceIndex = index;
+                contextOverlay.hide();
                 const auto snapshot = stateStore.getSnapshot();
                 if (index >= 0 && index < static_cast<int> (snapshot.previewSnippetURLs.size()))
                 {
@@ -940,6 +1141,38 @@ namespace
                                                     durationSeconds);
                 }
                 playSliceAtIndex (index);
+            });
+
+            grid.setCellRightClickHandler ([this] (int index)
+            {
+                const auto bounds = grid.getCellBounds (index);
+                if (bounds.isEmpty())
+                    return;
+
+                contextOverlay.setBounds (grid.getBounds());
+                contextOverlay.showForCell (index, bounds);
+            });
+
+            contextOverlay.setActionHandler ([this] (SliceContextOverlay::Action action, int index)
+            {
+                juce::String actionLabel;
+                switch (action)
+                {
+                    case SliceContextOverlay::Action::lock: actionLabel = "Lock"; break;
+                    case SliceContextOverlay::Action::remove: actionLabel = "Delete"; break;
+                    case SliceContextOverlay::Action::regen: actionLabel = "Regen"; break;
+                    case SliceContextOverlay::Action::swap: actionLabel = "Swap"; break;
+                    case SliceContextOverlay::Action::duplicate: actionLabel = "Duplicate"; break;
+                    case SliceContextOverlay::Action::reverse: actionLabel = "Reverse"; break;
+                    default: actionLabel = "Action"; break;
+                }
+                setStatusText (actionLabel + " selected on slice " + juce::String (index + 1) + ".");
+                contextOverlay.hide();
+            });
+
+            contextOverlay.setDismissHandler ([this]()
+            {
+                setStatusText ("Context menu dismissed.");
             });
         }
 
@@ -967,6 +1200,7 @@ namespace
             focusPlaceholder.setBounds (0, y, focusW, focusH);
             y += focusH + spacing;
             grid.setBounds (0, y, gridW, gridH);
+            contextOverlay.setBounds (grid.getBounds());
             y += gridH + spacing;
 
             if (actionBar != nullptr)
@@ -1045,6 +1279,7 @@ namespace
         PreviewChainPlayer& previewPlayer;
         FocusPreviewArea focusPlaceholder;
         PreviewGrid grid;
+        SliceContextOverlay contextOverlay;
         std::unique_ptr<juce::Component> actionBar;
         std::unique_ptr<juce::Component> statusArea;
         std::unique_ptr<juce::FileChooser> exportChooser;

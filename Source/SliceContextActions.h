@@ -22,8 +22,19 @@ struct SliceContextActionResult
     bool shouldDismissOverlay = true;
 };
 
+struct SliceContextTargetResult
+{
+    bool didHandle = false;
+    SliceContextActionResult actionResult;
+};
+
 SliceContextActionResult handleSliceContextAction (SliceContextAction action,
                                                    int index,
                                                    SliceStateStore& stateStore,
                                                    SliceContextState& contextState,
                                                    AudioEngine& audioEngine);
+
+SliceContextTargetResult handleSliceContextTargetSelection (int targetIndex,
+                                                            SliceStateStore& stateStore,
+                                                            SliceContextState& contextState,
+                                                            AudioEngine& audioEngine);

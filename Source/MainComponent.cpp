@@ -1231,6 +1231,18 @@ namespace
 
             grid.setCellClickHandler ([this] (int index)
             {
+                const auto pendingResult = handleSliceContextTargetSelection (index,
+                                                                              stateStore,
+                                                                              sliceContextState,
+                                                                              audioEngine);
+                if (pendingResult.didHandle)
+                {
+                    if (pendingResult.actionResult.statusText.isNotEmpty())
+                        setStatusText (pendingResult.actionResult.statusText);
+                    contextOverlay.hide();
+                    return;
+                }
+
                 focusedSliceIndex = index;
                 contextOverlay.hide();
                 const auto snapshot = stateStore.getSnapshot();

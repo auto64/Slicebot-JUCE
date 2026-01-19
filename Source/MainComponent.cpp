@@ -261,6 +261,36 @@ namespace
             actionHandler = std::move (handler);
         }
 
+        void setIconFiles (const std::array<juce::File, 6>& files)
+        {
+            for (size_t index = 0; index < iconDrawables.size(); ++index)
+            {
+                iconDrawables[index].reset();
+                if (! files[index].existsAsFile())
+                    continue;
+
+                if (files[index].hasFileExtension ("svg"))
+                {
+                    std::unique_ptr<juce::XmlElement> svgXml (juce::XmlDocument::parse (files[index]));
+                    if (svgXml != nullptr)
+                        iconDrawables[index] = juce::Drawable::createFromSVG (*svgXml);
+                }
+                else
+                {
+                    auto image = juce::ImageCache::getFromFile (files[index]);
+                    if (image.isValid())
+                        iconDrawables[index] = std::make_unique<juce::DrawableImage> (image);
+                }
+
+                if (iconDrawables[index] != nullptr)
+                {
+                    iconDrawables[index]->replaceColour (juce::Colours::black, juce::Colours::white);
+                    iconDrawables[index]->replaceColour (juce::Colour (0xff000000), juce::Colours::white);
+                }
+            }
+            repaint();
+        }
+
         void setDismissHandler (std::function<void()> handler)
         {
             dismissHandler = std::move (handler);
@@ -334,7 +364,7 @@ namespace
                 return;
 
             const auto bounds = targetBounds;
-            g.setColour (juce::Colour (0xdd2b2b2b));
+            g.setColour (juce::Colour (0x802b2b2b));
             g.fillRect (bounds);
 
             g.setColour (juce::Colour (0xffcfcfcf));
@@ -344,9 +374,6 @@ namespace
             const int rows = 2;
             const int cellW = bounds.getWidth() / cols;
             const int cellH = bounds.getHeight() / rows;
-            const auto labels = getActionLabels();
-
-            g.setFont (juce::Font (juce::FontOptions ("Helvetica", 11.0f, juce::Font::plain)));
             for (int row = 0; row < rows; ++row)
             {
                 for (int col = 0; col < cols; ++col)
@@ -358,8 +385,13 @@ namespace
                                                cellH);
                     g.setColour (juce::Colour (0xff3d3d3d));
                     g.drawRect (cell, 1);
-                    g.setColour (juce::Colours::white);
-                    g.drawFittedText (labels[actionIndex], cell, juce::Justification::centred, 1);
+                    const auto iconBounds = cell.reduced (12);
+                    const auto& icon = iconDrawables[static_cast<size_t> (actionIndex)];
+                    if (icon != nullptr)
+                        icon->drawWithin (g,
+                                          iconBounds.toFloat(),
+                                          juce::RectanglePlacement::centred,
+                                          1.0f);
                 }
             }
         }
@@ -386,15 +418,11 @@ namespace
             }
         }
 
-        static std::array<juce::String, 6> getActionLabels()
-        {
-            return { "LOCK", "DELETE", "REGEN", "SWAP", "DUPLICATE", "REVERSE" };
-        }
-
         std::function<void(Action, int)> actionHandler;
         std::function<void()> dismissHandler;
         int targetIndex = -1;
         juce::Rectangle<int> targetBounds;
+        std::array<std::unique_ptr<juce::Drawable>, 6> iconDrawables;
     };
 
     class LiveModuleContainer final : public juce::Component
@@ -1151,6 +1179,16 @@ namespace
 
                 contextOverlay.setBounds (grid.getBounds());
                 contextOverlay.showForCell (index, bounds);
+            });
+
+            const auto iconRoot = juce::File::getCurrentWorkingDirectory().getChildFile ("Assets");
+            contextOverlay.setIconFiles ({
+                iconRoot.getChildFile ("lock.svg"),
+                iconRoot.getChildFile ("delete.svg"),
+                iconRoot.getChildFile ("regen.svg"),
+                iconRoot.getChildFile ("swap.svg"),
+                iconRoot.getChildFile ("duplicate.svg"),
+                iconRoot.getChildFile ("reverse.svg")
             });
 
             contextOverlay.setActionHandler ([this] (SliceContextOverlay::Action action, int index)

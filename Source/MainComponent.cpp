@@ -375,9 +375,6 @@ namespace
 
         void setSourceFile (const juce::File& file)
         {
-            if (file == currentFile)
-                return;
-
             currentFile = file;
             thumbnail.clear();
 
@@ -462,9 +459,6 @@ namespace
 
         void setSourceFile (const juce::File& file)
         {
-            if (file == currentFile)
-                return;
-
             currentFile = file;
             thumbnail.clear();
 
@@ -882,10 +876,9 @@ namespace
                         {
                             settingsInner->setValue ("LastExportDirectory", exportDirectory.getFullPathName());
                             settingsInner->setValue ("LastExportPrefix", options->exportPrefix);
-                            settingsInner->setValue ("LastGenerateIndividual", options->generateIndividual);
-                            settingsInner->setValue ("LastGenerateChain", options->generateChain);
-                            AppProperties::get().properties().saveIfNeeded();
                         }
+
+                        setStatusText ("Exporting...");
 
                         SliceStateStore::ExportSettings exportSettings;
                         exportSettings.exportDirectory = exportDirectory;
@@ -895,11 +888,9 @@ namespace
 
                         MutationOrchestrator orchestrator (stateStore);
                         bool exportOk = false;
-
-                        if (options->generateIndividual)
+                        if (exportSettings.generateIndividual)
                             exportOk |= orchestrator.requestExportSlices (exportSettings);
-
-                        if (options->generateChain)
+                        if (exportSettings.generateChain)
                             exportOk |= orchestrator.requestExportFullChainWithVolume (exportSettings);
 
                         setStatusText (exportOk ? "Export complete." : "Export failed.");
@@ -930,7 +921,7 @@ namespace
 
         void paint (juce::Graphics& g) override
         {
-            g.fillAll (juce::Colours::grey);
+            g.fillAll (juce::Colour (0xff7a7a7a));
         }
 
         void resized() override

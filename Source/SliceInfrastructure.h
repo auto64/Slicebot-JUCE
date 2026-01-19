@@ -18,6 +18,7 @@ struct SliceProcessingFlags
 // Pairing invariant (dormant): leftIndex = i, rightIndex = i + sampleCount.
 
 std::optional<int> refinedStart (const juce::AudioBuffer<float>& input,
+                                 juce::Random& random,
                                  int startFrame,
                                  int windowFrames,
                                  bool transientDetectEnabled);

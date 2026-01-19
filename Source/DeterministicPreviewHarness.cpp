@@ -177,7 +177,7 @@ bool DeterministicPreviewHarness::buildDeterministicSlices()
         int startFrame = 0;
         if (kTransientDetectEnabled)
         {
-            const auto refined = refinedStart (converted.buffer, 0, windowFrames, kTransientDetectEnabled);
+            const auto refined = refinedStart (converted.buffer, random, 0, windowFrames, kTransientDetectEnabled);
             if (! refined.has_value())
                 continue;
             startFrame = refined.value();

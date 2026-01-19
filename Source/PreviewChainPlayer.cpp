@@ -24,13 +24,16 @@ bool PreviewChainPlayer::startPlayback (const juce::File& previewChainFile, bool
 
     stopPlayback();
 
+    isLoopEnabled = shouldLoop;
+
     std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (previewChainFile));
     if (reader == nullptr)
         return false;
 
     readerSource = std::make_unique<juce::AudioFormatReaderSource> (reader.release(), true);
+    readerSource->setLooping (isLoopEnabled);
     transportSource.setSource (readerSource.get(), 0, nullptr, readerSource->getAudioFormatReader()->sampleRate);
-    transportSource.setLooping (shouldLoop);
+    transportSource.setLooping (isLoopEnabled);
 
     sourcePlayer.setSource (&transportSource);
     deviceManager.addAudioCallback (&sourcePlayer);
@@ -57,6 +60,8 @@ void PreviewChainPlayer::setLooping (bool shouldLoop)
 {
     isLoopEnabled = shouldLoop;
     transportSource.setLooping (isLoopEnabled);
+    if (readerSource != nullptr)
+        readerSource->setLooping (isLoopEnabled);
 }
 
 bool PreviewChainPlayer::isLooping() const

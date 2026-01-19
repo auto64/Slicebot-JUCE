@@ -12,6 +12,9 @@ class AudioEngine final : public juce::AudioIODeviceCallback,
                           private juce::AsyncUpdater
 {
 public:
+    static constexpr float kRecorderMinGainDb = -40.0f;
+    static constexpr float kRecorderMaxGainDb = 30.0f;
+
     enum class UiSound
     {
         Cowbell,

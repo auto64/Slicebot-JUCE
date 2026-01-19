@@ -136,8 +136,10 @@ void AudioEngine::restoreState()
                 prefix + "midiInEnabled",
                 settings->getBoolValue (prefix + "midiArmEnabled", false));
             const bool midiOutEnabled = settings->getBoolValue (prefix + "midiOutEnabled", false);
-            const float gainDb = static_cast<float> (
-                settings->getDoubleValue (prefix + "inputGainDb", 0.0));
+            const float gainDb = juce::jlimit (
+                kRecorderMinGainDb,
+                kRecorderMaxGainDb,
+                static_cast<float> (settings->getDoubleValue (prefix + "inputGainDb", 0.0)));
 
             recorderPhysicalChannels[index] = inputChannel;
             recorderIncludeInGeneration[index] = includeEnabled;
@@ -803,7 +805,9 @@ void AudioEngine::setRecorderInputGainDb (int index, float gainDb)
     if (index < 0 || index >= RecordingBus::kNumRecorders)
         return;
 
-    const float clamped = juce::jlimit (-60.0f, 6.0f, gainDb);
+    const float clamped = juce::jlimit (kRecorderMinGainDb,
+                                        kRecorderMaxGainDb,
+                                        gainDb);
     recorderInputGainDb[index] = clamped;
     recordingBus.setRecorderInputGainDb (index, clamped);
 }

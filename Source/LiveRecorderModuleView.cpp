@@ -9,8 +9,10 @@ static constexpr int kModuleW = 120;
 static constexpr int kModuleH = 150;
 static constexpr double kMinSeconds = 25.0;
 static constexpr double kMaxRecordSeconds = 600.0;
-static constexpr float kMinGainDb = -40.0f;
-static constexpr float kMaxGainDb = 30.0f;
+static constexpr float kMinGainDb = AudioEngine::kRecorderMinGainDb;
+static constexpr float kMaxGainDb = AudioEngine::kRecorderMaxGainDb;
+static constexpr float kMeterMinDb = -40.0f;
+static constexpr float kMeterMaxDb = 0.0f;
 
 // =====================================================
 // CONSTRUCTION
@@ -111,7 +113,8 @@ void LiveRecorderModuleView::paint (juce::Graphics& g)
     g.setColour (juce::Colours::black);
     g.fillRect (meterBounds);
 
-    g.setColour (juce::Colours::green);
+    const bool isClipping = peak >= 1.0f;
+    g.setColour (isClipping ? juce::Colours::red : juce::Colours::green);
     g.fillRect (meterBounds.getX(),
                 meterBounds.getY(),
                 int (meterBounds.getWidth() * juce::jlimit (0.0f, 1.0f, rms)),
@@ -675,13 +678,13 @@ void LiveRecorderModuleView::timerCallback()
     const float linearRms = audioEngine.getRecorderRms (recorderIndex);
     const float linearPeak = audioEngine.getRecorderPeak (recorderIndex);
 
-    const float rmsDb = juce::Decibels::gainToDecibels (linearRms, kMinGainDb);
-    const float peakDb = juce::Decibels::gainToDecibels (linearPeak, kMinGainDb);
+    const float rmsDb = juce::Decibels::gainToDecibels (linearRms, kMeterMinDb);
+    const float peakDb = juce::Decibels::gainToDecibels (linearPeak, kMeterMinDb);
 
     rms = juce::jlimit (0.0f, 1.0f,
-                        (rmsDb - kMinGainDb) / (kMaxGainDb - kMinGainDb));
+                        (rmsDb - kMeterMinDb) / (kMeterMaxDb - kMeterMinDb));
     peak = juce::jlimit (0.0f, 1.0f,
-                         (peakDb - kMinGainDb) / (kMaxGainDb - kMinGainDb));
+                         (peakDb - kMeterMinDb) / (kMeterMaxDb - kMeterMinDb));
 
     const float gainDb = audioEngine.getRecorderInputGainDb (recorderIndex);
     gainPosition = juce::jlimit (0.0f, 1.0f,

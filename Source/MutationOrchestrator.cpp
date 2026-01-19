@@ -370,12 +370,10 @@ bool MutationOrchestrator::requestResliceSingle (int index)
             if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
                 return false;
 
-            const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
-
-            int startFrame = random.nextInt (maxCandidateStart + 1);
-
             const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
             const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (targetIndex)];
+            const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
+            int startFrame = 0;
 
             if (transientDetectEnabled)
             {
@@ -385,11 +383,12 @@ bool MutationOrchestrator::requestResliceSingle (int index)
 
                 const auto refined = refinedStart (converted.buffer,
                                                    random,
-                                                   startFrame,
+                                                   maxCandidateStart,
                                                    barWindowFrames (bpm),
                                                    transientDetectEnabled);
-                if (refined.has_value())
-                    startFrame = refined.value();
+                if (! refined.has_value())
+                    return false;
+                startFrame = refined.value();
 
                 fileDurationFrames = converted.buffer.getNumSamples();
                 if (startFrame + snippetFrameCount > fileDurationFrames)
@@ -407,6 +406,7 @@ bool MutationOrchestrator::requestResliceSingle (int index)
             }
             else
             {
+                startFrame = random.nextInt (maxCandidateStart + 1);
                 if (startFrame + snippetFrameCount > fileDurationFrames)
                     return false;
 
@@ -503,11 +503,10 @@ bool MutationOrchestrator::requestResliceAll()
                 if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
                     return false;
 
-                const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
-                int startFrame = random.nextInt (maxCandidateStart + 1);
-
                 const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
                 const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (targetIndex)];
+                const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
+                int startFrame = 0;
 
                 if (transientDetectEnabled)
                 {
@@ -517,11 +516,12 @@ bool MutationOrchestrator::requestResliceAll()
 
                     const auto refined = refinedStart (converted.buffer,
                                                        random,
-                                                       startFrame,
+                                                       maxCandidateStart,
                                                        barWindowFrames (bpm),
                                                        transientDetectEnabled);
-                    if (refined.has_value())
-                        startFrame = refined.value();
+                    if (! refined.has_value())
+                        return false;
+                    startFrame = refined.value();
 
                     fileDurationFrames = converted.buffer.getNumSamples();
                     if (startFrame + snippetFrameCount > fileDurationFrames)
@@ -539,6 +539,7 @@ bool MutationOrchestrator::requestResliceAll()
                 }
                 else
                 {
+                    startFrame = random.nextInt (maxCandidateStart + 1);
                     if (startFrame + snippetFrameCount > fileDurationFrames)
                         return false;
 
@@ -732,14 +733,15 @@ bool MutationOrchestrator::requestSliceAll()
                 if (fileDurationFrames <= 0)
                     continue;
 
-                const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
-                int startFrame = random.nextInt (maxCandidateStart + 1);
                 const int subdivisionSteps = subdivisionForIndex (index);
                 const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
                 if (snippetFrameCount <= 0)
                     continue;
 
                 const juce::File outputFile = previewTempFolder.getChildFile ("slice_" + juce::String (index) + ".wav");
+
+                const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
+                int startFrame = 0;
 
                 if (snapshot.transientDetectionEnabled)
                 {
@@ -749,11 +751,12 @@ bool MutationOrchestrator::requestSliceAll()
 
                     const auto refined = refinedStart (converted.buffer,
                                                        random,
-                                                       startFrame,
+                                                       maxCandidateStart,
                                                        barWindowFrames (bpm),
                                                        snapshot.transientDetectionEnabled);
-                    if (refined.has_value())
-                        startFrame = refined.value();
+                    if (! refined.has_value())
+                        continue;
+                    startFrame = refined.value();
 
                     fileDurationFrames = converted.buffer.getNumSamples();
                     if (startFrame + snippetFrameCount > fileDurationFrames)
@@ -771,6 +774,7 @@ bool MutationOrchestrator::requestSliceAll()
                 }
                 else
                 {
+                    startFrame = random.nextInt (maxCandidateStart + 1);
                     if (startFrame + snippetFrameCount > fileDurationFrames)
                         continue;
 

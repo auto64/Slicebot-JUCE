@@ -8,7 +8,7 @@ namespace
 
 std::optional<int> refinedStart (const juce::AudioBuffer<float>& input,
                                  juce::Random& random,
-                                 int,
+                                 int maxCandidateStart,
                                  int windowFrames,
                                  bool transientDetectEnabled)
 {
@@ -23,7 +23,8 @@ std::optional<int> refinedStart (const juce::AudioBuffer<float>& input,
         return std::nullopt;
 
     const int maxWindowStart = totalSamples - windowFrames;
-    const int windowStart = random.nextInt (maxWindowStart + 1);
+    const int cappedCandidateStart = juce::jlimit (0, maxWindowStart, maxCandidateStart);
+    const int windowStart = random.nextInt (cappedCandidateStart + 1);
 
     if (windowStart < 0 || windowStart + windowFrames > totalSamples)
         return std::nullopt;

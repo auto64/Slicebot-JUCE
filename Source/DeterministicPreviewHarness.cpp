@@ -174,17 +174,17 @@ bool DeterministicPreviewHarness::buildDeterministicSlices()
             continue;
 
         const int fileDurationFrames = converted.buffer.getNumSamples();
+        const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames);
         int startFrame = 0;
         if (kTransientDetectEnabled)
         {
-            const auto refined = refinedStart (converted.buffer, random, 0, windowFrames, kTransientDetectEnabled);
+            const auto refined = refinedStart (converted.buffer, random, maxCandidateStart, windowFrames, kTransientDetectEnabled);
             if (! refined.has_value())
                 continue;
             startFrame = refined.value();
         }
         else
         {
-            const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames);
             startFrame = random.nextInt (maxCandidateStart + 1);
         }
 

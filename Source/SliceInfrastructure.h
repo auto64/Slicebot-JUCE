@@ -19,7 +19,7 @@ struct SliceProcessingFlags
 
 std::optional<int> refinedStart (const juce::AudioBuffer<float>& input,
                                  juce::Random& random,
-                                 int startFrame,
+                                 int maxCandidateStart,
                                  int windowFrames,
                                  bool transientDetectEnabled);
 

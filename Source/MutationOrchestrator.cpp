@@ -20,6 +20,7 @@ namespace {
     constexpr float kPachinkoVolumeReductionMax = 0.6f;
     constexpr float kPachinkoPitchShiftMin = -12.0f;
     constexpr float kPachinkoPitchShiftMax = 12.0f;
+    constexpr int kTransientRepeatRetryCount = 4;
 
     double resolvedBpm (double bpm)
     {
@@ -697,6 +698,7 @@ bool MutationOrchestrator::requestSliceAll()
 
         AudioFileIO audioFileIO;
         const int entryCount = availableEntries.size();
+        int lastStartFrame = -1;
 
         for (int index = 0; index < targetCount; ++index)
         {
@@ -749,14 +751,25 @@ bool MutationOrchestrator::requestSliceAll()
                     if (! audioFileIO.readToMonoBuffer (sourceFile, converted, formatDescription))
                         continue;
 
-                    const auto refined = refinedStart (converted.buffer,
-                                                       random,
-                                                       maxCandidateStart,
-                                                       barWindowFrames (bpm),
-                                                       snapshot.transientDetectionEnabled);
-                    if (! refined.has_value())
+                    bool foundStart = false;
+                    for (int retry = 0; retry <= kTransientRepeatRetryCount; ++retry)
+                    {
+                        const auto refined = refinedStart (converted.buffer,
+                                                           random,
+                                                           maxCandidateStart,
+                                                           barWindowFrames (bpm),
+                                                           snapshot.transientDetectionEnabled);
+                        if (! refined.has_value())
+                            continue;
+                        const int candidateStart = refined.value();
+                        if (candidateStart == lastStartFrame)
+                            continue;
+                        startFrame = candidateStart;
+                        foundStart = true;
+                        break;
+                    }
+                    if (! foundStart)
                         continue;
-                    startFrame = refined.value();
 
                     fileDurationFrames = converted.buffer.getNumSamples();
                     if (startFrame + snippetFrameCount > fileDurationFrames)
@@ -795,6 +808,7 @@ bool MutationOrchestrator::requestSliceAll()
                 sliceInfos.push_back (info);
                 previewSnippetURLs.push_back (outputFile);
                 sliceVolumeSettings.push_back ({ 0.75f, false });
+                lastStartFrame = startFrame;
                 added = true;
             }
 

@@ -1181,14 +1181,37 @@ namespace
                 contextOverlay.showForCell (index, bounds);
             });
 
-            const auto iconRoot = juce::File::getCurrentWorkingDirectory().getChildFile ("Assets");
+            auto resolveIconFile = [] (const juce::String& fileName)
+            {
+                const auto workingDir = juce::File::getCurrentWorkingDirectory();
+                const auto appDir = juce::File::getSpecialLocation (juce::File::currentApplicationFile)
+                                        .getParentDirectory();
+                const std::array<juce::File, 6> roots = {
+                    workingDir.getChildFile ("Assets"),
+                    workingDir.getChildFile ("Source").getChildFile ("Assets"),
+                    appDir.getChildFile ("Assets"),
+                    appDir.getChildFile ("Resources"),
+                    appDir.getChildFile ("Resources").getChildFile ("Assets"),
+                    appDir.getChildFile ("..").getChildFile ("Assets")
+                };
+
+                for (const auto& root : roots)
+                {
+                    const auto candidate = root.getChildFile (fileName);
+                    if (candidate.existsAsFile())
+                        return candidate;
+                }
+
+                return juce::File();
+            };
+
             contextOverlay.setIconFiles ({
-                iconRoot.getChildFile ("lock.svg"),
-                iconRoot.getChildFile ("delete.svg"),
-                iconRoot.getChildFile ("regen.svg"),
-                iconRoot.getChildFile ("swap.svg"),
-                iconRoot.getChildFile ("duplicate.svg"),
-                iconRoot.getChildFile ("reverse.svg")
+                resolveIconFile ("lock.svg"),
+                resolveIconFile ("delete.svg"),
+                resolveIconFile ("regen.svg"),
+                resolveIconFile ("swap.svg"),
+                resolveIconFile ("duplicate.svg"),
+                resolveIconFile ("reverse.svg")
             });
 
             contextOverlay.setActionHandler ([this] (SliceContextOverlay::Action action, int index)

@@ -75,10 +75,6 @@ private:
     juce::TextButton samplesEight { "8" };
     juce::TextButton samplesSixteen { "16" };
 
-    std::unique_ptr<juce::Component> focusView;
-    std::unique_ptr<juce::Component> previewGrid;
-    std::unique_ptr<juce::Component> actionBar;
-    std::unique_ptr<juce::Component> statusArea;
     std::unique_ptr<juce::FileChooser> sourceChooser;
     std::function<void(const juce::String&)> statusTextCallback;
     std::function<void(float)> progressCallback;

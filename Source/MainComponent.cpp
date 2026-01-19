@@ -502,6 +502,7 @@ namespace
 
         void setSliceFiles (const std::vector<juce::File>& files)
         {
+            thumbnailCache.clear();
             for (int index = 0; index < totalCells; ++index)
             {
                 if (index < static_cast<int> (files.size()))
@@ -876,9 +877,10 @@ namespace
                         {
                             settingsInner->setValue ("LastExportDirectory", exportDirectory.getFullPathName());
                             settingsInner->setValue ("LastExportPrefix", options->exportPrefix);
+                            settingsInner->setValue ("LastGenerateIndividual", options->generateIndividual);
+                            settingsInner->setValue ("LastGenerateChain", options->generateChain);
+                            AppProperties::get().properties().saveIfNeeded();
                         }
-
-                        setStatusText ("Exporting...");
 
                         SliceStateStore::ExportSettings exportSettings;
                         exportSettings.exportDirectory = exportDirectory;
@@ -888,9 +890,11 @@ namespace
 
                         MutationOrchestrator orchestrator (stateStore);
                         bool exportOk = false;
-                        if (exportSettings.generateIndividual)
+
+                        if (options->generateIndividual)
                             exportOk |= orchestrator.requestExportSlices (exportSettings);
-                        if (exportSettings.generateChain)
+
+                        if (options->generateChain)
                             exportOk |= orchestrator.requestExportFullChainWithVolume (exportSettings);
 
                         setStatusText (exportOk ? "Export complete." : "Export failed.");

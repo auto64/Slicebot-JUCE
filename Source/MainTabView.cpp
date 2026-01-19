@@ -8,15 +8,6 @@ namespace
     constexpr int kRowHeight = 28;
     constexpr int kRowSpacing = 10;
     constexpr int kSectionSpacing = 12;
-    constexpr int kFocusHeight = 96;
-    constexpr int kGridCellWidth = 150;
-    constexpr int kGridCellHeight = 64;
-    constexpr int kGridSpacing = 3;
-    constexpr int kGridColumns = 4;
-    constexpr int kGridRows = 4;
-    constexpr int kActionBarHeight = 28;
-    constexpr int kStatusHeight = 24;
-    constexpr int kSideColumnWidth = 24;
 
     juce::Colour backgroundGrey()
     {
@@ -43,310 +34,6 @@ namespace
         return juce::Colour (0xff4fa3f7);
     }
 
-    class WaveformArea final : public juce::Component
-    {
-    public:
-        void paint (juce::Graphics& g) override
-        {
-            g.fillAll (panelGrey());
-        }
-    };
-
-    class FocusWaveformView final : public juce::Component
-    {
-    public:
-        FocusWaveformView()
-        {
-            const juce::String labels[] = { "S", "W", "R", "C", "P" };
-            for (const auto& label : labels)
-            {
-                auto* button = leftButtons.add (new juce::TextButton (label));
-                configureSmallButton (*button);
-                addAndMakeVisible (*button);
-            }
-
-            configureSmallButton (muteButton);
-            muteButton.setButtonText ("M");
-
-            addAndMakeVisible (muteButton);
-            addAndMakeVisible (waveformArea);
-        }
-
-        void paint (juce::Graphics& g) override
-        {
-            g.fillAll (backgroundGrey());
-        }
-
-        void resized() override
-        {
-            auto bounds = getLocalBounds();
-            auto leftColumn = bounds.removeFromLeft (kSideColumnWidth);
-            auto rightColumn = bounds.removeFromRight (kSideColumnWidth);
-
-            const int buttonHeight = leftColumn.getHeight() / leftButtons.size();
-            for (int i = 0; i < leftButtons.size(); ++i)
-            {
-                leftButtons[i]->setBounds (leftColumn.removeFromTop (buttonHeight));
-            }
-
-            const int muteSize = kSideColumnWidth;
-            muteButton.setBounds (
-                rightColumn.getX(),
-                rightColumn.getBottom() - muteSize,
-                muteSize,
-                muteSize
-            );
-
-            waveformArea.setBounds (bounds);
-        }
-
-    private:
-        void configureSmallButton (juce::TextButton& button)
-        {
-            button.setColour (juce::TextButton::buttonColourId, panelGrey());
-            button.setColour (juce::TextButton::buttonOnColourId, accentBlue());
-            button.setColour (juce::TextButton::textColourOffId, textGrey());
-            button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
-        }
-
-        juce::OwnedArray<juce::TextButton> leftButtons;
-        juce::TextButton muteButton;
-        WaveformArea waveformArea;
-    };
-
-    class GridCell final : public juce::Component
-    {
-    public:
-        void paint (juce::Graphics& g) override
-        {
-            g.fillAll (backgroundGrey());
-        }
-    };
-
-    class PreviewGrid final : public juce::Component
-    {
-    public:
-        PreviewGrid()
-        {
-            for (int index = 0; index < kGridColumns * kGridRows; ++index)
-            {
-                auto cell = std::make_unique<GridCell>();
-                addAndMakeVisible (*cell);
-                cells.add (std::move (cell));
-            }
-        }
-
-        void paint (juce::Graphics& g) override
-        {
-            g.fillAll (panelGrey());
-        }
-
-        void resized() override
-        {
-            for (int row = 0; row < kGridRows; ++row)
-            {
-                for (int col = 0; col < kGridColumns; ++col)
-                {
-                    const int index = row * kGridColumns + col;
-                    const int x = col * (kGridCellWidth + kGridSpacing);
-                    const int y = row * (kGridCellHeight + kGridSpacing);
-                    cells[index]->setBounds (x, y, kGridCellWidth, kGridCellHeight);
-                }
-            }
-        }
-
-    private:
-        juce::OwnedArray<GridCell> cells;
-    };
-
-    class ActionBar final : public juce::Component
-    {
-    public:
-        ActionBar()
-        {
-            configureButton (sliceAllButton, "SLICE ALL");
-            configureButton (modAllButton, "MOD ALL");
-            configureButton (jumbleAllButton, "JUMBLE ALL");
-            configureButton (resliceAllButton, "RESLICE ALL");
-            configureButton (exportButton, "EXPORT");
-            configureButton (lockButton, "🔒");
-            configureButton (loopButton, "LOOP");
-
-            loopButton.setClickingTogglesState (true);
-
-            buttons.add (&sliceAllButton);
-            buttons.add (&modAllButton);
-            buttons.add (&jumbleAllButton);
-            buttons.add (&resliceAllButton);
-            buttons.add (&exportButton);
-            buttons.add (&lockButton);
-            buttons.add (&loopButton);
-
-            for (auto* button : buttons)
-            {
-                button->setLookAndFeel (&compactLookAndFeel);
-                addAndMakeVisible (button);
-            }
-        }
-
-        ~ActionBar() override
-        {
-            for (auto* button : buttons)
-                button->setLookAndFeel (nullptr);
-        }
-
-        void setLoopHandler (std::function<void(bool)> handler)
-        {
-            loopButton.onClick = [this, handler = std::move (handler)]()
-            {
-                handler (loopButton.getToggleState());
-            };
-        }
-
-        void setLoopState (bool isEnabled)
-        {
-            loopButton.setToggleState (isEnabled, juce::dontSendNotification);
-        }
-
-        void resized() override
-        {
-            auto bounds = getLocalBounds();
-            const int spacing = 5;
-            layoutButtons (bounds, spacing);
-        }
-
-    private:
-        class CompactLookAndFeel final : public juce::LookAndFeel_V4
-        {
-        public:
-            juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override
-            {
-                return juce::Font (juce::FontOptions ("Helvetica",
-                                                      juce::jmin (11.0f, buttonHeight * 0.5f),
-                                                      juce::Font::plain));
-            }
-
-            void drawButtonBackground (juce::Graphics& g,
-                                       juce::Button& button,
-                                       const juce::Colour&,
-                                       bool,
-                                       bool) override
-            {
-                const auto bounds = button.getLocalBounds().toFloat();
-                const auto baseColour = button.findColour (button.getToggleState()
-                                                               ? juce::TextButton::buttonOnColourId
-                                                               : juce::TextButton::buttonColourId);
-                g.setColour (baseColour);
-                g.fillRect (bounds);
-                g.setColour (borderGrey());
-                g.drawRect (bounds, 1.0f);
-            }
-
-            void drawButtonText (juce::Graphics& g,
-                                 juce::TextButton& button,
-                                 bool,
-                                 bool) override
-            {
-                g.setFont (getTextButtonFont (button, button.getHeight()));
-                g.setColour (button.findColour (button.getToggleState()
-                                                    ? juce::TextButton::textColourOnId
-                                                    : juce::TextButton::textColourOffId));
-                const auto textBounds = button.getLocalBounds().reduced (2, 1);
-                g.drawFittedText (button.getButtonText(),
-                                  textBounds,
-                                  juce::Justification::centred,
-                                  1);
-            }
-        };
-
-        void layoutButtons (juce::Rectangle<int> bounds, int spacing)
-        {
-            const int buttonCount = buttons.size();
-            if (buttonCount == 0)
-                return;
-
-            const int availableWidth = bounds.getWidth() - spacing * (buttonCount - 1);
-            int totalBestWidth = 0;
-            for (auto* button : buttons)
-                totalBestWidth += button->getBestWidthForHeight (bounds.getHeight());
-
-            const float scale = totalBestWidth > 0
-                                    ? juce::jmin (1.0f, static_cast<float> (availableWidth) / static_cast<float> (totalBestWidth))
-                                    : 1.0f;
-
-            for (int index = 0; index < buttonCount; ++index)
-            {
-                auto* button = buttons[index];
-                const int bestWidth = button->getBestWidthForHeight (bounds.getHeight());
-                int width = static_cast<int> (std::floor (bestWidth * scale));
-                if (index == buttonCount - 1)
-                    width = bounds.getWidth();
-                button->setBounds (bounds.removeFromLeft (width));
-                if (index < buttonCount - 1)
-                    bounds.removeFromLeft (spacing);
-            }
-        }
-
-        void configureButton (juce::TextButton& button, const juce::String& text)
-        {
-            button.setButtonText (text);
-            button.setColour (juce::TextButton::buttonColourId, panelGrey());
-            button.setColour (juce::TextButton::buttonOnColourId, accentBlue());
-            button.setColour (juce::TextButton::textColourOffId, textGrey());
-            button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
-        }
-
-        CompactLookAndFeel compactLookAndFeel;
-        juce::TextButton sliceAllButton;
-        juce::TextButton modAllButton;
-        juce::TextButton jumbleAllButton;
-        juce::TextButton resliceAllButton;
-        juce::TextButton exportButton;
-        juce::TextButton lockButton;
-        juce::TextButton loopButton;
-        juce::Array<juce::TextButton*> buttons;
-    };
-
-    class StatusArea final : public juce::Component
-    {
-    public:
-        StatusArea()
-        {
-            statusLabel.setText ("PREVIEW GENERATED.", juce::dontSendNotification);
-            statusLabel.setJustificationType (juce::Justification::centred);
-            statusLabel.setColour (juce::Label::textColourId, textGrey());
-            addAndMakeVisible (statusLabel);
-        }
-
-        void setStatusText (const juce::String& text)
-        {
-            statusLabel.setText (text, juce::dontSendNotification);
-        }
-
-        void setProgress (float progress)
-        {
-            progressValue = juce::jlimit (0.0f, 1.0f, progress);
-            repaint();
-        }
-
-        void paint (juce::Graphics& g) override
-        {
-            g.fillAll (backgroundGrey());
-            g.setColour (juce::Colour (0xffd9534f));
-            const float width = static_cast<float> (getWidth());
-            const float progressWidth = width * progressValue;
-            g.drawLine (0.0f, 0.0f, progressWidth, 0.0f, 1.0f);
-        }
-
-        void resized() override
-        {
-            statusLabel.setBounds (0, 4, getWidth(), getHeight() - 4);
-        }
-
-    private:
-        juce::Label statusLabel;
-        float progressValue = 0.0f;
-    };
 }
 
 MainTabView::StyleLookAndFeel::StyleLookAndFeel (float fontSizeToUse)
@@ -532,19 +219,11 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
         updateSliceSettingsFromUi();
     };
 
-    subdivLabel.setColour (juce::Label::textColourId, textGrey());
-    bpmLabel.setColour (juce::Label::textColourId, textGrey());
-    samplesLabel.setColour (juce::Label::textColourId, textGrey());
-    subdivLabel.setJustificationType (juce::Justification::centredLeft);
-    bpmLabel.setJustificationType (juce::Justification::centredLeft);
-    samplesLabel.setJustificationType (juce::Justification::centredLeft);
-
     addAndMakeVisible (modeMultiFile);
     addAndMakeVisible (modeSingleRandom);
     addAndMakeVisible (modeSingleManual);
     addAndMakeVisible (modeLive);
 
-    addAndMakeVisible (sourceButton);
     addAndMakeVisible (subdivLabel);
     addAndMakeVisible (subdivHalfBar);
     addAndMakeVisible (subdivQuarterBar);
@@ -552,27 +231,13 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
     addAndMakeVisible (subdivSixteenthNote);
     addAndMakeVisible (subdivRandom);
 
-    subdivRandom.setColour (juce::ToggleButton::textColourId, textGrey());
-
+    addAndMakeVisible (sourceButton);
     addAndMakeVisible (bpmLabel);
     addAndMakeVisible (bpmValue);
     addAndMakeVisible (samplesLabel);
     addAndMakeVisible (samplesFour);
     addAndMakeVisible (samplesEight);
     addAndMakeVisible (samplesSixteen);
-
-    focusView = std::make_unique<FocusWaveformView>();
-    previewGrid = std::make_unique<PreviewGrid>();
-    actionBar = std::make_unique<ActionBar>();
-    statusArea = std::make_unique<StatusArea>();
-
-    addAndMakeVisible (*focusView);
-    addAndMakeVisible (*previewGrid);
-    addAndMakeVisible (*actionBar);
-    addAndMakeVisible (*statusArea);
-
-    if (auto* bar = dynamic_cast<ActionBar*> (actionBar.get()))
-        juce::ignoreUnused (bar);
 
     applySettingsSnapshot (stateStore.getSnapshot());
     setCachingState (stateStore.getSnapshot().isCaching);
@@ -642,18 +307,6 @@ void MainTabView::resized()
     samplesSixteen.setBounds (rowBounds);
 
     y += kRowHeight + kSectionSpacing;
-
-    focusView->setBounds (x, y, contentWidth, kFocusHeight);
-    y += kFocusHeight + kSectionSpacing;
-
-    const int gridHeight = kGridRows * kGridCellHeight + (kGridRows - 1) * kGridSpacing;
-    previewGrid->setBounds (x, y, contentWidth, gridHeight);
-    y += gridHeight + kSectionSpacing;
-
-    actionBar->setBounds (x, y, contentWidth, kActionBarHeight);
-    y += kActionBarHeight + 8;
-
-    statusArea->setBounds (x, y, contentWidth, kStatusHeight);
 }
 
 void MainTabView::configureSegmentButton (juce::TextButton& button, int groupId)
@@ -735,16 +388,12 @@ void MainTabView::updateSliceSettingsFromUi()
 
 void MainTabView::updateStatusText (const juce::String& text)
 {
-    if (auto* status = dynamic_cast<StatusArea*> (statusArea.get()))
-        status->setStatusText (text);
     if (statusTextCallback)
         statusTextCallback (text);
 }
 
 void MainTabView::updateProgress (float progress)
 {
-    if (auto* status = dynamic_cast<StatusArea*> (statusArea.get()))
-        status->setProgress (progress);
     if (progressCallback)
         progressCallback (progress);
 }
@@ -808,8 +457,6 @@ void MainTabView::setLiveModeSelected (bool isLive)
 
 void MainTabView::setProgress (float progress)
 {
-    if (auto* status = dynamic_cast<StatusArea*> (statusArea.get()))
-        status->setProgress (progress);
     if (progressCallback)
         progressCallback (progress);
 }

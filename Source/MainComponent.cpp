@@ -751,9 +751,11 @@ namespace
     public:
         PersistentFrame (juce::TabbedComponent& tabsToTrack,
                          SliceStateStore& stateStoreToUse,
+                         AudioEngine& audioEngineToUse,
                          PreviewChainPlayer& previewPlayerToUse)
             : tabs (tabsToTrack),
               stateStore (stateStoreToUse),
+              audioEngine (audioEngineToUse),
               previewPlayer (previewPlayerToUse)
         {
             addAndMakeVisible (focusPlaceholder);
@@ -824,7 +826,7 @@ namespace
                         return;
                     }
 
-                    MutationOrchestrator orchestrator (stateStore);
+                    MutationOrchestrator orchestrator (stateStore, &audioEngine);
                     setStatusText ("Slicing...");
 
                     if (! orchestrator.requestSliceAll())
@@ -901,7 +903,7 @@ namespace
                         exportSettings.generateIndividual = options->generateIndividual;
                         exportSettings.generateChain = options->generateChain;
 
-                        MutationOrchestrator orchestrator (stateStore);
+                        MutationOrchestrator orchestrator (stateStore, &audioEngine);
                         bool exportOk = false;
 
                         if (options->generateIndividual)
@@ -1039,6 +1041,7 @@ namespace
 
         juce::TabbedComponent& tabs;
         SliceStateStore& stateStore;
+        AudioEngine& audioEngine;
         PreviewChainPlayer& previewPlayer;
         FocusPreviewArea focusPlaceholder;
         PreviewGrid grid;
@@ -1154,7 +1157,7 @@ namespace
             : tabs (tabsToTrack),
               audioEngine (audioEngineToUse),
               settingsView (settingsToUse),
-              persistentFrame (tabsToTrack, stateStoreToUse, previewPlayerToUse),
+              persistentFrame (tabsToTrack, stateStoreToUse, audioEngineToUse, previewPlayerToUse),
               mainTabView (stateStoreToUse),
               headerContainer (tabsToTrack, stateStoreToUse, mainTabView)
         {

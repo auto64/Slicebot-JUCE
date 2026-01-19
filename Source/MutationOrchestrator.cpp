@@ -7,6 +7,9 @@
 #include "ExportOrchestrator.h"
 #include "PreviewChainOrchestrator.h"
 #include "SliceInfrastructure.h"
+#include "AudioEngine.h"
+#include "RecordingBus.h"
+#include "RecordingModule.h"
 
 namespace {
     constexpr double kTargetSampleRate = 44100.0;
@@ -78,51 +81,100 @@ namespace {
         return subdivisions;
     }
 
-    juce::File getLiveRecordingsDirectory()
+    struct SlicingSources
     {
-        auto baseDir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
-        if (baseDir == juce::File())
-            return juce::File();
-
-        return baseDir.getChildFile ("LiveRecordings");
-    }
-
-    std::vector<juce::File> loadActiveLiveModuleFiles()
-    {
-        const auto liveDir = getLiveRecordingsDirectory();
-        if (liveDir == juce::File())
-            return {};
-
-        const auto metadataFile = liveDir.getChildFile ("liveModules.json");
-        if (! metadataFile.existsAsFile())
-            return {};
-
-        const auto parsed = juce::JSON::parse (metadataFile.loadFileAsString());
-        auto* array = parsed.getArray();
-        if (array == nullptr)
-            return {};
-
+        SliceStateStore::SourceMode sourceMode = SliceStateStore::SourceMode::multi;
+        juce::Array<AudioCacheStore::CacheEntry> cacheEntries;
         std::vector<juce::File> liveFiles;
-        for (const auto& entry : *array)
+        juce::File manualFile;
+        juce::String emptyReason;
+
+        bool hasSources() const
         {
-            auto* object = entry.getDynamicObject();
-            if (object == nullptr)
-                continue;
+            switch (sourceMode)
+            {
+                case SliceStateStore::SourceMode::multi:
+                case SliceStateStore::SourceMode::singleRandom:
+                    return ! cacheEntries.isEmpty();
+                case SliceStateStore::SourceMode::singleManual:
+                    return manualFile.existsAsFile();
+                case SliceStateStore::SourceMode::live:
+                    return ! liveFiles.empty();
+            }
+            return false;
+        }
+    };
 
-            const bool isActive = static_cast<bool> (object->getProperty ("isActive"));
-            if (! isActive)
-                continue;
+    SlicingSources getCurrentSlicingSources (const SliceStateStore::SliceStateSnapshot& snapshot,
+                                             const AudioEngine* audioEngine)
+    {
+        SlicingSources sources;
+        sources.sourceMode = snapshot.sourceMode;
 
-            const juce::String filePath = object->getProperty ("filePath").toString();
-            if (filePath.isEmpty())
-                continue;
+        switch (snapshot.sourceMode)
+        {
+            case SliceStateStore::SourceMode::multi:
+            case SliceStateStore::SourceMode::singleRandom:
+            {
+                for (const auto& entry : snapshot.cacheData.entries)
+                {
+                    if (entry.isCandidate)
+                        sources.cacheEntries.add (entry);
+                }
+                break;
+            }
+            case SliceStateStore::SourceMode::singleManual:
+            {
+                sources.manualFile = snapshot.sourceFile;
+                if (! sources.manualFile.existsAsFile())
+                    sources.emptyReason = "No manual source file selected.";
+                break;
+            }
+            case SliceStateStore::SourceMode::live:
+            {
+                if (audioEngine == nullptr)
+                {
+                    sources.emptyReason = "LIVE slicing is unavailable.";
+                    break;
+                }
 
-            juce::File file (filePath);
-            if (file.existsAsFile())
-                liveFiles.push_back (file);
+                bool anySelected = false;
+                for (int index = 0; index < RecordingBus::kNumRecorders; ++index)
+                {
+                    if (! audioEngine->isRecorderIncludeInGenerationEnabled (index))
+                        continue;
+
+                    anySelected = true;
+                    const auto recorderFile = RecordingModule::getRecorderFile (index);
+                    if (recorderFile.existsAsFile())
+                        sources.liveFiles.push_back (recorderFile);
+                }
+
+                if (sources.liveFiles.empty())
+                {
+                    sources.emptyReason = anySelected
+                                              ? "Selected LIVE recorders have no audio to slice."
+                                              : "No LIVE recorders are selected for slicing.";
+                }
+                break;
+            }
         }
 
-        return liveFiles;
+        return sources;
+    }
+
+    bool warnIfMissingLiveSources (const SlicingSources& sources)
+    {
+        if (sources.sourceMode != SliceStateStore::SourceMode::live || sources.hasSources())
+            return false;
+
+        const juce::String reason = sources.emptyReason.isNotEmpty()
+                                        ? sources.emptyReason
+                                        : "No LIVE recorders are available for slicing.";
+        juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                               "No LIVE sources",
+                                               reason);
+        return true;
     }
 
     int subdivisionToFrameCount (double bpm, int subdivisionSteps)
@@ -244,8 +296,9 @@ namespace {
     }
 }
 
-MutationOrchestrator::MutationOrchestrator (SliceStateStore& store)
-    : stateStore (store)
+MutationOrchestrator::MutationOrchestrator (SliceStateStore& store, AudioEngine* engine)
+    : stateStore (store),
+      audioEngine (engine)
 {
 }
 
@@ -268,6 +321,11 @@ bool MutationOrchestrator::requestResliceSingle (int index)
         return false;
 
     if (! validateAlignment())
+        return false;
+
+    const auto snapshot = stateStore.getSnapshot();
+    const auto sources = getCurrentSlicingSources (snapshot, audioEngine);
+    if (warnIfMissingLiveSources (sources))
         return false;
 
     BackgroundWorker worker;
@@ -395,12 +453,16 @@ bool MutationOrchestrator::requestResliceAll()
     if (! validateAlignment())
         return false;
 
+    const auto snapshot = stateStore.getSnapshot();
+    const auto sources = getCurrentSlicingSources (snapshot, audioEngine);
+    if (warnIfMissingLiveSources (sources))
+        return false;
+
     BackgroundWorker worker;
     bool rebuildOk = false;
 
-    worker.enqueue ([&]
+    worker.enqueue ([&, snapshot]
     {
-        const auto snapshot = stateStore.getSnapshot();
         auto sliceInfos = snapshot.sliceInfos;
         auto previewSnippetURLs = snapshot.previewSnippetURLs;
         auto sliceVolumeSettings = snapshot.sliceVolumeSettings;
@@ -520,13 +582,16 @@ bool MutationOrchestrator::requestSliceAll()
     if (! guardMutation())
         return false;
 
+    const auto snapshot = stateStore.getSnapshot();
+    const auto sources = getCurrentSlicingSources (snapshot, audioEngine);
+    if (warnIfMissingLiveSources (sources))
+        return false;
+
     BackgroundWorker worker;
     bool rebuildOk = false;
 
-    worker.enqueue ([&]
+    worker.enqueue ([&, snapshot, sources]
     {
-        const auto snapshot = stateStore.getSnapshot();
-        const auto& cacheData = snapshot.cacheData;
 
         const bool layeringMode = snapshot.layeringMode;
         const int sampleCount = snapshot.sampleCountSetting;
@@ -581,20 +646,12 @@ bool MutationOrchestrator::requestSliceAll()
         {
             case SliceStateStore::SourceMode::multi:
             {
-                for (const auto& entry : cacheData.entries)
-                {
-                    if (entry.isCandidate)
-                        availableEntries.add (entry);
-                }
+                availableEntries = sources.cacheEntries;
                 break;
             }
             case SliceStateStore::SourceMode::singleRandom:
             {
-                for (const auto& entry : cacheData.entries)
-                {
-                    if (entry.isCandidate)
-                        availableEntries.add (entry);
-                }
+                availableEntries = sources.cacheEntries;
                 if (! availableEntries.isEmpty())
                 {
                     juce::Random random;
@@ -613,7 +670,7 @@ bool MutationOrchestrator::requestSliceAll()
             }
             case SliceStateStore::SourceMode::live:
             {
-                liveFiles = loadActiveLiveModuleFiles();
+                liveFiles = sources.liveFiles;
                 break;
             }
         }
@@ -763,6 +820,11 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
     if (! validateAlignment())
         return false;
 
+    const auto snapshot = stateStore.getSnapshot();
+    const auto sources = getCurrentSlicingSources (snapshot, audioEngine);
+    if (warnIfMissingLiveSources (sources))
+        return false;
+
     BackgroundWorker worker;
     bool rebuildOk = false;
 
@@ -850,6 +912,11 @@ bool MutationOrchestrator::requestRegenerateAll()
         return false;
 
     if (! validateAlignment())
+        return false;
+
+    const auto snapshot = stateStore.getSnapshot();
+    const auto sources = getCurrentSlicingSources (snapshot, audioEngine);
+    if (warnIfMissingLiveSources (sources))
         return false;
 
     BackgroundWorker worker;

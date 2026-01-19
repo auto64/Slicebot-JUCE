@@ -4,10 +4,12 @@
 #include <optional>
 #include "SliceStateStore.h"
 
+class AudioEngine;
+
 class MutationOrchestrator
 {
 public:
-    explicit MutationOrchestrator (SliceStateStore& stateStore);
+    explicit MutationOrchestrator (SliceStateStore& stateStore, AudioEngine* engine = nullptr);
 
     void setCaching (bool caching);
     bool isCaching() const;
@@ -34,6 +36,7 @@ private:
     bool validateAlignment() const;
 
     SliceStateStore& stateStore;
+    AudioEngine* audioEngine = nullptr;
     std::atomic<bool> caching { false };
     juce::File stutterUndoBackup;
 

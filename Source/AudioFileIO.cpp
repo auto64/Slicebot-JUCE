@@ -32,8 +32,8 @@ namespace
             return input;
 
         const int inputSamples = input.getNumSamples();
-        const double ratio = kTargetSampleRate / sourceRate;
-        const int outputSamples = static_cast<int> (std::ceil (inputSamples * ratio));
+        const double ratio = sourceRate / kTargetSampleRate;
+        const int outputSamples = static_cast<int> (std::ceil (static_cast<double> (inputSamples) / ratio));
 
         juce::AudioBuffer<float> resampled (1, outputSamples);
         resampled.clear();

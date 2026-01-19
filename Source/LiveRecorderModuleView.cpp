@@ -386,6 +386,7 @@ void LiveRecorderModuleView::buttonClicked (juce::Button* b)
         audioEngine.setRecorderIncludeInGenerationEnabled (
             recorderIndex,
             sliceButton.getToggleState());
+        audioEngine.saveState();
         return;
     }
 

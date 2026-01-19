@@ -239,6 +239,12 @@ namespace
     class SliceContextOverlay final : public juce::Component
     {
     public:
+        struct IconSource
+        {
+            juce::String name;
+            juce::File file;
+        };
+
         enum class Action
         {
             lock,
@@ -261,26 +267,15 @@ namespace
             actionHandler = std::move (handler);
         }
 
-        void setIconFiles (const std::array<juce::File, 6>& files)
+        void setIconSources (const std::array<IconSource, 6>& sources)
         {
             for (size_t index = 0; index < iconDrawables.size(); ++index)
             {
                 iconDrawables[index].reset();
-                if (! files[index].existsAsFile())
-                    continue;
+                iconDrawables[index] = createDrawableFromBinaryData (sources[index].name);
 
-                if (files[index].hasFileExtension ("svg"))
-                {
-                    std::unique_ptr<juce::XmlElement> svgXml (juce::XmlDocument::parse (files[index]));
-                    if (svgXml != nullptr)
-                        iconDrawables[index] = juce::Drawable::createFromSVG (*svgXml);
-                }
-                else
-                {
-                    auto image = juce::ImageCache::getFromFile (files[index]);
-                    if (image.isValid())
-                        iconDrawables[index] = std::make_unique<juce::DrawableImage> (image);
-                }
+                if (iconDrawables[index] == nullptr)
+                    iconDrawables[index] = createDrawableFromFile (sources[index].file);
 
                 if (iconDrawables[index] != nullptr)
                 {
@@ -345,17 +340,35 @@ namespace
                 return;
             }
 
-            const auto localBounds = targetBounds;
-            const int cols = 3;
-            const int rows = 2;
-            const int cellW = localBounds.getWidth() / cols;
-            const int cellH = localBounds.getHeight() / rows;
-            const int col = juce::jlimit (0, cols - 1, (position.x - localBounds.getX()) / cellW);
-            const int row = juce::jlimit (0, rows - 1, (position.y - localBounds.getY()) / cellH);
-            const int index = row * cols + col;
+            const int index = getActionIndexForPosition (position);
 
             if (actionHandler != nullptr && targetIndex >= 0)
                 actionHandler (actionFromIndex (index), targetIndex);
+        }
+
+        void mouseMove (const juce::MouseEvent& event) override
+        {
+            if (! isShowing())
+                return;
+
+            const auto position = event.getPosition();
+            const int nextIndex = targetBounds.contains (position)
+                                      ? getActionIndexForPosition (position)
+                                      : -1;
+            if (nextIndex != hoveredActionIndex)
+            {
+                hoveredActionIndex = nextIndex;
+                repaint();
+            }
+        }
+
+        void mouseExit (const juce::MouseEvent&) override
+        {
+            if (hoveredActionIndex != -1)
+            {
+                hoveredActionIndex = -1;
+                repaint();
+            }
         }
 
         void paint (juce::Graphics& g) override
@@ -384,8 +397,12 @@ namespace
                                                cellW,
                                                cellH);
                     g.setColour (juce::Colour (0xff3d3d3d));
+                    if (actionIndex == hoveredActionIndex)
+                        g.setColour (juce::Colour (0xff3d3d3d).interpolatedWith (juce::Colours::white, 0.2f));
+                    g.fillRect (cell);
+                    g.setColour (juce::Colour (0xff3d3d3d));
                     g.drawRect (cell, 1);
-                    const auto iconBounds = cell.reduced (12);
+                    const auto iconBounds = cell.reduced (10);
                     const auto& icon = iconDrawables[static_cast<size_t> (actionIndex)];
                     if (icon != nullptr)
                         icon->drawWithin (g,
@@ -418,9 +435,68 @@ namespace
             }
         }
 
+        int getActionIndexForPosition (juce::Point<int> position) const
+        {
+            const auto localBounds = targetBounds;
+            const int cols = 3;
+            const int rows = 2;
+            const int cellW = localBounds.getWidth() / cols;
+            const int cellH = localBounds.getHeight() / rows;
+            const int col = juce::jlimit (0, cols - 1, (position.x - localBounds.getX()) / cellW);
+            const int row = juce::jlimit (0, rows - 1, (position.y - localBounds.getY()) / cellH);
+            return row * cols + col;
+        }
+
+        static std::unique_ptr<juce::Drawable> createDrawableFromFile (const juce::File& file)
+        {
+            if (! file.existsAsFile())
+                return nullptr;
+
+            if (file.hasFileExtension ("svg"))
+            {
+                std::unique_ptr<juce::XmlElement> svgXml (juce::XmlDocument::parse (file));
+                if (svgXml != nullptr)
+                    return juce::Drawable::createFromSVG (*svgXml);
+                return nullptr;
+            }
+
+            auto image = juce::ImageCache::getFromFile (file);
+            if (image.isValid())
+                return std::make_unique<juce::DrawableImage> (image);
+            return nullptr;
+        }
+
+        static std::unique_ptr<juce::Drawable> createDrawableFromBinaryData (const juce::String& fileName)
+        {
+            juce::String resourceName = fileName.replaceCharacter ('.', '_');
+            resourceName = resourceName.replaceCharacter ('-', '_');
+
+            int dataSize = 0;
+            const void* data = BinaryData::getNamedResource (resourceName.toRawUTF8(), dataSize);
+            if (data == nullptr || dataSize <= 0)
+                return nullptr;
+
+            juce::MemoryInputStream stream (data, static_cast<size_t> (dataSize), false);
+            if (fileName.endsWithIgnoreCase (".svg"))
+            {
+                const juce::String svgText = stream.readString();
+                juce::XmlDocument svgDocument (svgText);
+                std::unique_ptr<juce::XmlElement> svgXml (svgDocument.getDocumentElement());
+                if (svgXml != nullptr)
+                    return juce::Drawable::createFromSVG (*svgXml);
+                return nullptr;
+            }
+
+            auto image = juce::ImageFileFormat::loadFrom (stream);
+            if (image.isValid())
+                return std::make_unique<juce::DrawableImage> (image);
+            return nullptr;
+        }
+
         std::function<void(Action, int)> actionHandler;
         std::function<void()> dismissHandler;
         int targetIndex = -1;
+        int hoveredActionIndex = -1;
         juce::Rectangle<int> targetBounds;
         std::array<std::unique_ptr<juce::Drawable>, 6> iconDrawables;
     };
@@ -1205,13 +1281,13 @@ namespace
                 return juce::File();
             };
 
-            contextOverlay.setIconFiles ({
-                resolveIconFile ("lock.svg"),
-                resolveIconFile ("delete.svg"),
-                resolveIconFile ("regen.svg"),
-                resolveIconFile ("swap.svg"),
-                resolveIconFile ("duplicate.svg"),
-                resolveIconFile ("reverse.svg")
+            contextOverlay.setIconSources ({
+                SliceContextOverlay::IconSource { "lock.svg", resolveIconFile ("lock.svg") },
+                SliceContextOverlay::IconSource { "delete.svg", resolveIconFile ("delete.svg") },
+                SliceContextOverlay::IconSource { "regen.svg", resolveIconFile ("regen.svg") },
+                SliceContextOverlay::IconSource { "swap.svg", resolveIconFile ("swap.svg") },
+                SliceContextOverlay::IconSource { "duplicate.svg", resolveIconFile ("duplicate.svg") },
+                SliceContextOverlay::IconSource { "reverse.svg", resolveIconFile ("reverse.svg") }
             });
 
             contextOverlay.setActionHandler ([this] (SliceContextOverlay::Action action, int index)

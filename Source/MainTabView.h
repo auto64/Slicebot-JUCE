@@ -45,6 +45,8 @@ private:
 
     void configureSegmentButton (juce::TextButton& button, int groupId);
     void applySettingsSnapshot (const SliceStateStore::SliceStateSnapshot& snapshot);
+    void setSubdivisionToggleState (int subdivisionSteps);
+    void setSubdivisionFromUi (int subdivisionSteps);
     void updateSliceSettingsFromUi();
     void updateStatusText (const juce::String& text);
     void updateProgress (float progress);

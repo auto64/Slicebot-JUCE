@@ -34,6 +34,22 @@ namespace
         return juce::Colour (0xff4fa3f7);
     }
 
+    int normalisedSubdivision (int subdivisionSteps)
+    {
+        switch (subdivisionSteps)
+        {
+            case 8:
+            case 4:
+            case 2:
+            case 1:
+                return subdivisionSteps;
+            default:
+                break;
+        }
+
+        return 4;
+    }
+
 }
 
 MainTabView::StyleLookAndFeel::StyleLookAndFeel (float fontSizeToUse)
@@ -119,8 +135,10 @@ MainTabView::MainTabView (SliceStateStore& stateStoreToUse)
     for (auto* button : { &modeMultiFile, &modeSingleRandom, &modeSingleManual, &modeLive })
         button->onClick = [this]() { updateSourceModeState(); };
 
-    for (auto* button : { &subdivHalfBar, &subdivQuarterBar, &subdivEighthNote, &subdivSixteenthNote })
-        button->onClick = [this]() { updateSliceSettingsFromUi(); };
+    subdivHalfBar.onClick = [this]() { setSubdivisionFromUi (8); };
+    subdivQuarterBar.onClick = [this]() { setSubdivisionFromUi (4); };
+    subdivEighthNote.onClick = [this]() { setSubdivisionFromUi (2); };
+    subdivSixteenthNote.onClick = [this]() { setSubdivisionFromUi (1); };
 
     for (auto* button : { &samplesFour, &samplesEight, &samplesSixteen })
         button->onClick = [this]() { updateSliceSettingsFromUi(); };
@@ -323,10 +341,7 @@ void MainTabView::applySettingsSnapshot (const SliceStateStore::SliceStateSnapsh
 {
     bpmValue.setText (juce::String (snapshot.bpm, 1), juce::dontSendNotification);
 
-    subdivHalfBar.setToggleState (snapshot.subdivisionSteps == 8, juce::dontSendNotification);
-    subdivQuarterBar.setToggleState (snapshot.subdivisionSteps == 4, juce::dontSendNotification);
-    subdivEighthNote.setToggleState (snapshot.subdivisionSteps == 2, juce::dontSendNotification);
-    subdivSixteenthNote.setToggleState (snapshot.subdivisionSteps == 1, juce::dontSendNotification);
+    setSubdivisionToggleState (snapshot.subdivisionSteps);
 
     subdivRandom.setToggleState (snapshot.randomSubdivisionEnabled, juce::dontSendNotification);
 
@@ -351,20 +366,27 @@ void MainTabView::applySettingsSnapshot (const SliceStateStore::SliceStateSnapsh
     }
 }
 
-void MainTabView::updateSliceSettingsFromUi()
+void MainTabView::setSubdivisionToggleState (int subdivisionSteps)
+{
+    const int effectiveSubdivision = normalisedSubdivision (subdivisionSteps);
+    subdivHalfBar.setToggleState (false, juce::dontSendNotification);
+    subdivQuarterBar.setToggleState (false, juce::dontSendNotification);
+    subdivEighthNote.setToggleState (false, juce::dontSendNotification);
+    subdivSixteenthNote.setToggleState (false, juce::dontSendNotification);
+    if (effectiveSubdivision == 8)
+        subdivHalfBar.setToggleState (true, juce::dontSendNotification);
+    else if (effectiveSubdivision == 4)
+        subdivQuarterBar.setToggleState (true, juce::dontSendNotification);
+    else if (effectiveSubdivision == 2)
+        subdivEighthNote.setToggleState (true, juce::dontSendNotification);
+    else
+        subdivSixteenthNote.setToggleState (true, juce::dontSendNotification);
+}
+
+void MainTabView::setSubdivisionFromUi (int subdivisionSteps)
 {
     const auto snapshot = stateStore.getSnapshot();
     const double newBpm = bpmValue.getText().getDoubleValue();
-
-    int subdivision = snapshot.subdivisionSteps;
-    if (subdivHalfBar.getToggleState())
-        subdivision = 8;
-    else if (subdivQuarterBar.getToggleState())
-        subdivision = 4;
-    else if (subdivEighthNote.getToggleState())
-        subdivision = 2;
-    else if (subdivSixteenthNote.getToggleState())
-        subdivision = 1;
 
     int samples = snapshot.sampleCountSetting;
     if (samplesFour.getToggleState())
@@ -375,6 +397,9 @@ void MainTabView::updateSliceSettingsFromUi()
         samples = 16;
 
     const double safeBpm = newBpm > 0.0 ? newBpm : snapshot.bpm;
+    const int subdivision = normalisedSubdivision (subdivisionSteps);
+
+    setSubdivisionToggleState (subdivision);
 
     stateStore.setSliceSettings (safeBpm,
                                  subdivision,
@@ -384,6 +409,25 @@ void MainTabView::updateSliceSettingsFromUi()
 
     if (bpmChangedCallback)
         bpmChangedCallback (safeBpm);
+}
+
+void MainTabView::updateSliceSettingsFromUi()
+{
+    const auto snapshot = stateStore.getSnapshot();
+
+    int subdivision = snapshot.subdivisionSteps;
+    if (subdivHalfBar.getToggleState())
+        subdivision = 8;
+    else if (subdivQuarterBar.getToggleState())
+        subdivision = 4;
+    else if (subdivEighthNote.getToggleState())
+        subdivision = 2;
+    else if (subdivSixteenthNote.getToggleState())
+        subdivision = 1;
+    else
+        subdivision = 4;
+
+    setSubdivisionFromUi (subdivision);
 }
 
 void MainTabView::updateStatusText (const juce::String& text)

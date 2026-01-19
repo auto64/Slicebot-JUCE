@@ -5,6 +5,7 @@
 #include "MutationOrchestrator.h"
 #include "PreviewChainOrchestrator.h"
 #include "RecordingModule.h"
+#include "SliceContextActions.h"
 #include "SliceContextState.h"
 #include <cmath>
 #include <array>
@@ -1293,19 +1294,27 @@ namespace
 
             contextOverlay.setActionHandler ([this] (SliceContextOverlay::Action action, int index)
             {
-                juce::String actionLabel;
+                SliceContextAction mappedAction = SliceContextAction::lock;
                 switch (action)
                 {
-                    case SliceContextOverlay::Action::lock: actionLabel = "Lock"; break;
-                    case SliceContextOverlay::Action::remove: actionLabel = "Delete"; break;
-                    case SliceContextOverlay::Action::regen: actionLabel = "Regen"; break;
-                    case SliceContextOverlay::Action::swap: actionLabel = "Swap"; break;
-                    case SliceContextOverlay::Action::duplicate: actionLabel = "Duplicate"; break;
-                    case SliceContextOverlay::Action::reverse: actionLabel = "Reverse"; break;
-                    default: actionLabel = "Action"; break;
+                    case SliceContextOverlay::Action::lock: mappedAction = SliceContextAction::lock; break;
+                    case SliceContextOverlay::Action::remove: mappedAction = SliceContextAction::remove; break;
+                    case SliceContextOverlay::Action::regen: mappedAction = SliceContextAction::regen; break;
+                    case SliceContextOverlay::Action::swap: mappedAction = SliceContextAction::swap; break;
+                    case SliceContextOverlay::Action::duplicate: mappedAction = SliceContextAction::duplicate; break;
+                    case SliceContextOverlay::Action::reverse: mappedAction = SliceContextAction::reverse; break;
+                    default: mappedAction = SliceContextAction::lock; break;
                 }
-                setStatusText (actionLabel + " selected on slice " + juce::String (index + 1) + ".");
-                contextOverlay.hide();
+
+                const auto result = handleSliceContextAction (mappedAction,
+                                                              index,
+                                                              stateStore,
+                                                              sliceContextState,
+                                                              audioEngine);
+                if (result.statusText.isNotEmpty())
+                    setStatusText (result.statusText);
+                if (result.shouldDismissOverlay)
+                    contextOverlay.hide();
             });
 
             contextOverlay.setDismissHandler ([this]()

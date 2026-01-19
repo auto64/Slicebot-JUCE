@@ -17,6 +17,10 @@
             xcodeResource="1"/>
     </GROUP>
     <GROUP id="{FB906DED-8C2D-2546-FAB3-946F3F9BA6B2}" name="Source">
+      <FILE id="h6sxSC" name="SliceContextActions.cpp" compile="1" resource="0"
+            file="Source/SliceContextActions.cpp"/>
+      <FILE id="xX3vHN" name="SliceContextActions.h" compile="0" resource="0"
+            file="Source/SliceContextActions.h"/>
       <FILE id="wqwjCs" name="SliceContextState.cpp" compile="1" resource="0"
             file="Source/SliceContextState.cpp"/>
       <FILE id="vaPuOF" name="SliceContextState.h" compile="0" resource="0"

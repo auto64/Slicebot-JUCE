@@ -144,6 +144,7 @@ private:
     void applyExternalTransportStart();
     void applyExternalTransportStop();
     bool hasAnyRecorderMidiInEnabled() const;
+    void enforceSampleRate (double targetSampleRate);
 
     juce::AudioDeviceManager deviceManager;
     RecordingBus recordingBus;

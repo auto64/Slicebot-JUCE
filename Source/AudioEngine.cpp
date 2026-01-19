@@ -9,6 +9,7 @@ namespace
     constexpr const char* kVirtualOutName = "SliceBot Sync Out";
     constexpr double kMinMidiBpm = 20.0;
     constexpr double kMaxMidiBpm = 300.0;
+    constexpr double kPreferredSampleRate = 44100.0;
     enum ExternalTransportCommand
     {
         kExternalTransportNone = 0,
@@ -75,6 +76,7 @@ AudioEngine::AudioEngine()
         deviceManager.initialiseWithDefaultDevices (2, 2);
     }
 
+    enforceSampleRate (kPreferredSampleRate);
     deviceManager.addAudioCallback (this);
 }
 
@@ -200,6 +202,25 @@ void AudioEngine::saveState()
 juce::AudioDeviceManager& AudioEngine::getDeviceManager()
 {
     return deviceManager;
+}
+
+void AudioEngine::enforceSampleRate (double targetSampleRate)
+{
+    auto* device = deviceManager.getCurrentAudioDevice();
+    if (! device)
+        return;
+
+    const auto availableRates = device->getAvailableSampleRates();
+    if (! availableRates.contains (targetSampleRate))
+        return;
+
+    juce::AudioDeviceManager::AudioDeviceSetup setup;
+    deviceManager.getAudioDeviceSetup (setup);
+    if (juce::approximatelyEqual (setup.sampleRate, targetSampleRate))
+        return;
+
+    setup.sampleRate = targetSampleRate;
+    deviceManager.setAudioDeviceSetup (setup, true);
 }
 
 // =====================================================

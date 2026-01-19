@@ -50,6 +50,38 @@ std::optional<int> refinedStart (const juce::AudioBuffer<float>& input,
     return startFrame;
 }
 
+std::optional<int> refinedStartFromWindow (const juce::AudioBuffer<float>& windowBuffer,
+                                           int windowStartFrame,
+                                           bool transientDetectEnabled)
+{
+    if (! transientDetectEnabled)
+        return std::nullopt;
+
+    const int totalSamples = windowBuffer.getNumSamples();
+    if (totalSamples <= 0 || windowStartFrame < 0)
+        return std::nullopt;
+
+    const float* samples = windowBuffer.getReadPointer (0);
+    int maxIndex = 0;
+    float maxValue = 0.0f;
+
+    for (int i = 0; i < totalSamples; ++i)
+    {
+        const float value = std::abs (samples[i]);
+        if (value > maxValue)
+        {
+            maxValue = value;
+            maxIndex = i;
+        }
+    }
+
+    const int transientFrame = windowStartFrame + maxIndex;
+    const int offsetFrames = static_cast<int> (std::lround (kPreTransientOffsetSeconds * kTargetSampleRate));
+    const int startFrame = juce::jmax (0, transientFrame - offsetFrames);
+
+    return startFrame;
+}
+
 juce::AudioBuffer<float> mergeSlices (const juce::AudioBuffer<float>& leftSlice,
                                       const juce::AudioBuffer<float>&,
                                       SliceStateStore::MergeMode)

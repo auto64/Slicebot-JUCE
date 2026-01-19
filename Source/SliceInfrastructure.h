@@ -23,6 +23,10 @@ std::optional<int> refinedStart (const juce::AudioBuffer<float>& input,
                                  int windowFrames,
                                  bool transientDetectEnabled);
 
+std::optional<int> refinedStartFromWindow (const juce::AudioBuffer<float>& windowBuffer,
+                                           int windowStartFrame,
+                                           bool transientDetectEnabled);
+
 juce::AudioBuffer<float> mergeSlices (const juce::AudioBuffer<float>& leftSlice,
                                       const juce::AudioBuffer<float>& rightSlice,
                                       SliceStateStore::MergeMode mergeMode);

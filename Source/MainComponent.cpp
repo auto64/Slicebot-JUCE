@@ -332,6 +332,8 @@ namespace
                                    private juce::ChangeListener
     {
     public:
+        static constexpr double kTargetSampleRate = 44100.0;
+
         FocusPreviewArea()
             : thumbnail (512, formatManager, thumbnailCache)
         {
@@ -351,7 +353,10 @@ namespace
             if (thumbnail.getTotalLength() > 0.0)
             {
                 g.setColour (juce::Colours::lightgrey);
-                thumbnail.drawChannels (g, getLocalBounds().reduced (6), 0.0, thumbnail.getTotalLength(), 1.0f);
+                const double effectiveLength = displayLengthSeconds > 0.0
+                                                   ? juce::jmin (displayLengthSeconds, thumbnail.getTotalLength())
+                                                   : thumbnail.getTotalLength();
+                thumbnail.drawChannels (g, getLocalBounds().reduced (6), 0.0, effectiveLength, 1.0f);
                 return;
             }
 
@@ -373,10 +378,11 @@ namespace
             onClick = std::move (handler);
         }
 
-        void setSourceFile (const juce::File& file)
+        void setSourceFile (const juce::File& file, double durationSeconds = 0.0)
         {
             currentFile = file;
             thumbnail.clear();
+            displayLengthSeconds = durationSeconds;
 
             if (currentFile.existsAsFile())
                 thumbnail.setSource (new juce::FileInputSource (currentFile));
@@ -394,6 +400,7 @@ namespace
         juce::AudioThumbnailCache thumbnailCache { 8 };
         juce::AudioThumbnail thumbnail;
         juce::File currentFile;
+        double displayLengthSeconds = 0.0;
         std::function<void()> onClick;
     };
 
@@ -830,7 +837,13 @@ namespace
                     if (! snapshot.previewSnippetURLs.empty())
                     {
                         focusedSliceIndex = 0;
-                        focusPlaceholder.setSourceFile (snapshot.previewSnippetURLs.front());
+                        double durationSeconds = 0.0;
+                        if (! snapshot.sliceInfos.empty())
+                        {
+                            durationSeconds = static_cast<double> (snapshot.sliceInfos.front().snippetFrameCount)
+                                              / FocusPreviewArea::kTargetSampleRate;
+                        }
+                        focusPlaceholder.setSourceFile (snapshot.previewSnippetURLs.front(), durationSeconds);
                         grid.setSliceFiles (snapshot.previewSnippetURLs);
                     }
 
@@ -913,7 +926,17 @@ namespace
                 focusedSliceIndex = index;
                 const auto snapshot = stateStore.getSnapshot();
                 if (index >= 0 && index < static_cast<int> (snapshot.previewSnippetURLs.size()))
-                    focusPlaceholder.setSourceFile (snapshot.previewSnippetURLs[static_cast<std::size_t> (index)]);
+                {
+                    double durationSeconds = 0.0;
+                    if (index < static_cast<int> (snapshot.sliceInfos.size()))
+                    {
+                        durationSeconds =
+                            static_cast<double> (snapshot.sliceInfos[static_cast<std::size_t> (index)].snippetFrameCount)
+                            / FocusPreviewArea::kTargetSampleRate;
+                    }
+                    focusPlaceholder.setSourceFile (snapshot.previewSnippetURLs[static_cast<std::size_t> (index)],
+                                                    durationSeconds);
+                }
                 playSliceAtIndex (index);
             });
         }

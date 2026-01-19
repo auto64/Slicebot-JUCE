@@ -5,6 +5,7 @@
 #include "MutationOrchestrator.h"
 #include "PreviewChainOrchestrator.h"
 #include "RecordingModule.h"
+#include "SliceContextState.h"
 #include <cmath>
 #include <array>
 #include <optional>
@@ -1420,6 +1421,7 @@ namespace
         std::unique_ptr<juce::Component> actionBar;
         std::unique_ptr<juce::Component> statusArea;
         std::unique_ptr<juce::FileChooser> exportChooser;
+        SliceContextState sliceContextState;
         int focusedSliceIndex = -1;
     };
 

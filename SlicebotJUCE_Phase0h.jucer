@@ -4,11 +4,10 @@
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" bundleIdentifier="com.auto64.slicebotjuce">
   <MAINGROUP id="wSbmOg" name="SlicebotJUCEPhase0">
     <GROUP id="{8D68B0C8-861D-423F-7222-4A8B3574BE78}" name="Assets">
+      <FILE id="cwZ1DZ" name="lock.svg" compile="0" resource="1" file="Source/Assets/lock.svg"/>
       <FILE id="KlkALh" name="delete.svg" compile="0" resource="1" file="Source/Assets/delete.svg"
             xcodeResource="1"/>
       <FILE id="jpLzAH" name="duplicate.svg" compile="0" resource="1" file="Source/Assets/duplicate.svg"
-            xcodeResource="1"/>
-      <FILE id="GsjJqq" name="lock.svg" compile="0" resource="1" file="Source/Assets/lock.svg"
             xcodeResource="1"/>
       <FILE id="GNuyWc" name="regen.svg" compile="0" resource="1" file="Source/Assets/regen.svg"
             xcodeResource="1"/>
@@ -18,6 +17,10 @@
             xcodeResource="1"/>
     </GROUP>
     <GROUP id="{FB906DED-8C2D-2546-FAB3-946F3F9BA6B2}" name="Source">
+      <FILE id="wqwjCs" name="SliceContextState.cpp" compile="1" resource="0"
+            file="Source/SliceContextState.cpp"/>
+      <FILE id="vaPuOF" name="SliceContextState.h" compile="0" resource="0"
+            file="Source/SliceContextState.h"/>
       <FILE id="Go5qk5" name="PreviewChainPlayer.cpp" compile="1" resource="0"
             file="Source/PreviewChainPlayer.cpp"/>
       <FILE id="D0l6AS" name="PreviewChainPlayer.h" compile="0" resource="0"

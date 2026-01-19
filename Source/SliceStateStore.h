@@ -31,6 +31,9 @@ public:
         int startFrame = 0;
         int subdivisionSteps = 0;
         int snippetFrameCount = 0;
+        bool isLocked = false;
+        bool isDeleted = false;
+        bool isReversed = false;
     };
 
     struct SliceVolumeSetting

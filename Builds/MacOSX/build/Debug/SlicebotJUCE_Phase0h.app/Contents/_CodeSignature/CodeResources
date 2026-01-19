@@ -16,10 +16,6 @@
 		<data>
 		m/rzVlbp+mLzC6u5kXLYyHiCDxk=
 		</data>
-		<key>Resources/lock.svg</key>
-		<data>
-		DlBHRp9zMK793aBA2WafXda/fmE=
-		</data>
 		<key>Resources/regen.svg</key>
 		<data>
 		v5wO5gA6xBZveLA3oZpCziXLN4Y=
@@ -54,13 +50,6 @@
 			<key>hash2</key>
 			<data>
 			ZpdrvygTwaspM4n7zW4xAU3fUMG5gYDdFH0doiRYazA=
-			</data>
-		</dict>
-		<key>Resources/lock.svg</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			udtzzUMhjBLm2l5zD1J9CiGRPOloK9UDuQEw3Wf1ysU=
 			</data>
 		</dict>
 		<key>Resources/regen.svg</key>

@@ -8,14 +8,14 @@
 
 namespace BinaryData
 {
+    extern const char*   lock_svg;
+    const int            lock_svgSize = 445;
+
     extern const char*   delete_svg;
     const int            delete_svgSize = 464;
 
     extern const char*   duplicate_svg;
     const int            duplicate_svgSize = 328;
-
-    extern const char*   lock_svg;
-    const int            lock_svgSize = 668;
 
     extern const char*   regen_svg;
     const int            regen_svgSize = 874;

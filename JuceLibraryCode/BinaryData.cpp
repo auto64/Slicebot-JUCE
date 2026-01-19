@@ -9,34 +9,33 @@
 namespace BinaryData
 {
 
-//================== delete.svg ==================
+//================== lock.svg ==================
 static const unsigned char temp_binary_data_0[] =
+"<?xml version=\"1.0\" encoding=\"utf-8\"?><!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->\r\n"
+"<svg width=\"800px\" height=\"800px\" viewBox=\"0 0 16 16\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">\r\n"
+"<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M4 6V4C4 1.79086 5.79086 0 8 0C10.2091 0 12 1.79086 12 4V6H14V16H2V6H4ZM6 4C6 2.89543 6.89543 2 8 2C9.10457 2 10 2.89543 10 4V6H6V4ZM7 13V9H9V13H7Z\" fill=\"#000000\"/>\r\n"
+"</svg>";
+
+const char* lock_svg = (const char*) temp_binary_data_0;
+
+//================== delete.svg ==================
+static const unsigned char temp_binary_data_1[] =
 "<?xml version=\"1.0\" encoding=\"utf-8\"?><!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->\r\n"
 "<svg width=\"800px\" height=\"800px\" viewBox=\"0 0 16 16\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">\r\n"
 "<path d=\"M5.1716 8.00003L1.08582 3.91424L3.91424 1.08582L8.00003 5.1716L12.0858 1.08582L14.9142 3.91424L10.8285 8.00003L14.9142 12.0858L12.0858 14.9142L8.00003 10.8285L3.91424 14.9142L1.08582 12.0858L5.1716 8.00003Z\" fill=\"#000000\"/>\r\n"
 "</svg>";
 
-const char* delete_svg = (const char*) temp_binary_data_0;
+const char* delete_svg = (const char*) temp_binary_data_1;
 
 //================== duplicate.svg ==================
-static const unsigned char temp_binary_data_1[] =
+static const unsigned char temp_binary_data_2[] =
 "<?xml version=\"1.0\" encoding=\"utf-8\"?><!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->\r\n"
 "<svg width=\"800px\" height=\"800px\" viewBox=\"0 0 16 16\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">\r\n"
 "<path d=\"M11 0H5V12H15V4L11 0Z\" fill=\"#000000\"/>\r\n"
 "<path d=\"M1 4V16H11V14H3V4H1Z\" fill=\"#000000\"/>\r\n"
 "</svg>";
 
-const char* duplicate_svg = (const char*) temp_binary_data_1;
-
-//================== lock.svg ==================
-static const unsigned char temp_binary_data_2[] =
-"<?xml version=\"1.0\" encoding=\"utf-8\"?><!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->\r\n"
-"<svg width=\"800px\" height=\"800px\" viewBox=\"0 0 16 16\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">\r\n"
-"<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M16 8C16 12.4183 12.4183 16 8 16C3.58172 16 0 12.4183 0 8C0 3.58172 3.58172 0 8 0C12.4183 0 16 3.58172 16 8ZM10.3128 12.4341C9.62116 12.7956 8.83445 13 8 13C5.23858 13 3 10.7614 3 8C3 7.16555 3.20"
-"441 6.37884 3.5659 5.68722L10.3128 12.4341ZM12.4341 10.3128L5.68722 3.5659C6.37884 3.20441 7.16555 3 8 3C10.7614 3 13 5.23858 13 8C13 8.83445 12.7956 9.62116 12.4341 10.3128Z\" fill=\"#000000\"/>\r\n"
-"</svg>";
-
-const char* lock_svg = (const char*) temp_binary_data_2;
+const char* duplicate_svg = (const char*) temp_binary_data_2;
 
 //================== regen.svg ==================
 static const unsigned char temp_binary_data_3[] =
@@ -80,9 +79,9 @@ const char* getNamedResource (const char* resourceNameUTF8, int& numBytes)
 
     switch (hash)
     {
+        case 0x71d32550:  numBytes = 445; return lock_svg;
         case 0x6932a5d0:  numBytes = 464; return delete_svg;
         case 0xb579bd30:  numBytes = 328; return duplicate_svg;
-        case 0x71d32550:  numBytes = 668; return lock_svg;
         case 0xfd867762:  numBytes = 874; return regen_svg;
         case 0x5ab2ff87:  numBytes = 306; return reverse_svg;
         case 0xed09fdb8:  numBytes = 402; return swap_svg;
@@ -95,9 +94,9 @@ const char* getNamedResource (const char* resourceNameUTF8, int& numBytes)
 
 const char* namedResourceList[] =
 {
+    "lock_svg",
     "delete_svg",
     "duplicate_svg",
-    "lock_svg",
     "regen_svg",
     "reverse_svg",
     "swap_svg"
@@ -105,9 +104,9 @@ const char* namedResourceList[] =
 
 const char* originalFilenames[] =
 {
+    "lock.svg",
     "delete.svg",
     "duplicate.svg",
-    "lock.svg",
     "regen.svg",
     "reverse.svg",
     "swap.svg"

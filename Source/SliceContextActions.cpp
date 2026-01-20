@@ -34,21 +34,28 @@ namespace
 
     bool writeSilentPreview (const SliceStateStore::SliceInfo& sliceInfo, const juce::File& previewFile)
     {
-        if (sliceInfo.snippetFrameCount <= 0)
-            return false;
-
         AudioFileIO audioFileIO;
         AudioFileIO::ConvertedAudio output;
         juce::String formatDescription;
+        int frameCount = sliceInfo.snippetFrameCount;
 
         if (previewFile.existsAsFile())
         {
             AudioFileIO::ConvertedAudio existingAudio;
             if (audioFileIO.readToMonoBuffer (previewFile, existingAudio, formatDescription))
+            {
                 output.sampleRate = existingAudio.sampleRate;
+                frameCount = existingAudio.buffer.getNumSamples();
+            }
         }
 
-        output.buffer.setSize (1, sliceInfo.snippetFrameCount);
+        if (frameCount <= 0)
+            return false;
+
+        if (previewFile.existsAsFile())
+            previewFile.deleteFile();
+
+        output.buffer.setSize (1, frameCount);
         output.buffer.clear();
 
         return audioFileIO.writeMonoWav16 (previewFile, output);
@@ -58,21 +65,25 @@ namespace
                                    const juce::File& previewFile,
                                    bool shouldReverse)
     {
-        if (sliceInfo.snippetFrameCount <= 0)
-            return false;
-
         AudioFileIO audioFileIO;
         AudioFileIO::ConvertedAudio sliceAudio;
         juce::String formatDescription;
+        bool loaded = false;
 
-        if (! audioFileIO.readToMonoBufferSegment (sliceInfo.fileURL,
-                                                   sliceInfo.startFrame,
-                                                   sliceInfo.snippetFrameCount,
-                                                   sliceAudio,
-                                                   formatDescription))
+        if (sliceInfo.snippetFrameCount > 0 && sliceInfo.fileURL.existsAsFile())
         {
-            return false;
+            loaded = audioFileIO.readToMonoBufferSegment (sliceInfo.fileURL,
+                                                         sliceInfo.startFrame,
+                                                         sliceInfo.snippetFrameCount,
+                                                         sliceAudio,
+                                                         formatDescription);
         }
+
+        if (! loaded && previewFile.existsAsFile())
+            loaded = audioFileIO.readToMonoBuffer (previewFile, sliceAudio, formatDescription);
+
+        if (! loaded)
+            return false;
 
         if (shouldReverse)
         {
@@ -85,6 +96,9 @@ namespace
                     std::swap (data[left], data[right]);
             }
         }
+
+        if (previewFile.existsAsFile())
+            previewFile.deleteFile();
 
         return audioFileIO.writeMonoWav16 (previewFile, sliceAudio);
     }
@@ -202,7 +216,14 @@ SliceContextActionResult handleSliceContextAction (SliceContextAction action,
                 return makeResult (sliceLabel + "is locked.");
             clearPendingAction (contextState);
             MutationOrchestrator orchestrator (stateStore, &audioEngine);
-            const bool ok = orchestrator.requestRegenerateSingle (index);
+            bool ok = orchestrator.requestRegenerateSingle (index);
+            if (! ok)
+            {
+                const auto& previewFile = snapshot.previewSnippetURLs[static_cast<std::size_t> (index)];
+                ok = rebuildPreviewFromSource (sliceInfo, previewFile, sliceInfo.isReversed);
+                if (ok)
+                    ok = rebuildPreviewChain (stateStore);
+            }
             if (! ok)
                 return makeResult (sliceLabel + "regen failed.");
             if (sliceInfo.isDeleted)

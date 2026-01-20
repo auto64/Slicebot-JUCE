@@ -688,10 +688,12 @@ namespace
         GridCell (int indexToDraw,
                   juce::AudioFormatManager& formatManager,
                   juce::AudioThumbnailCache& thumbnailCache,
-                  std::function<void(int)> clickHandler)
+                  std::function<void(int)> clickHandler,
+                  juce::Drawable* lockDrawableToUse)
             : index (indexToDraw),
               thumbnail (64, formatManager, thumbnailCache),
-              onClick (std::move (clickHandler))
+              onClick (std::move (clickHandler)),
+              lockDrawable (lockDrawableToUse)
         {
             thumbnail.addChangeListener (this);
         }
@@ -707,18 +709,47 @@ namespace
             g.setColour (juce::Colours::grey);
             g.drawRect (getLocalBounds(), 1);
 
-            if (thumbnail.getTotalLength() > 0.0)
+            if (! isDeleted && thumbnail.getTotalLength() > 0.0)
             {
+                const auto waveformBounds = getLocalBounds().reduced (4);
                 g.setColour (juce::Colours::lightgrey);
-                thumbnail.drawChannels (g, getLocalBounds().reduced (4), 0.0, thumbnail.getTotalLength(), 1.0f);
-                return;
+                if (isReversed)
+                {
+                    juce::Graphics::ScopedSaveState state (g);
+                    g.addTransform (juce::AffineTransform::scale (-1.0f, 1.0f)
+                                        .translated (-static_cast<float> (getWidth()), 0.0f));
+                    thumbnail.drawChannels (g, waveformBounds, 0.0, thumbnail.getTotalLength(), 1.0f);
+                }
+                else
+                {
+                    thumbnail.drawChannels (g, waveformBounds, 0.0, thumbnail.getTotalLength(), 1.0f);
+                }
+            }
+            else
+            {
+                g.setColour (juce::Colours::grey);
+                g.drawFittedText ("EMPTY",
+                                  getLocalBounds().reduced (4),
+                                  juce::Justification::centred,
+                                  1);
             }
 
-            g.setColour (juce::Colours::grey);
-            g.drawFittedText ("EMPTY",
-                              getLocalBounds().reduced (4),
-                              juce::Justification::centred,
-                              1);
+            if (highlighted)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.2f));
+                g.fillRect (getLocalBounds());
+            }
+
+            if (isLocked && lockDrawable != nullptr)
+            {
+                const int iconSize = 16;
+                const int padding = 6;
+                const juce::Rectangle<int> iconBounds (padding, padding, iconSize, iconSize);
+                lockDrawable->drawWithin (g,
+                                          iconBounds.toFloat(),
+                                          juce::RectanglePlacement::centred,
+                                          1.0f);
+            }
         }
 
         void mouseDown (const juce::MouseEvent& event) override
@@ -729,6 +760,18 @@ namespace
                 if (onRightClick != nullptr)
                     onRightClick (index);
             }
+        }
+
+        void mouseMove (const juce::MouseEvent&) override
+        {
+            if (onHover != nullptr)
+                onHover (index);
+        }
+
+        void mouseExit (const juce::MouseEvent&) override
+        {
+            if (onHover != nullptr)
+                onHover (-1);
         }
 
         void mouseUp (const juce::MouseEvent&) override
@@ -753,6 +796,11 @@ namespace
             onRightClick = std::move (handler);
         }
 
+        void setHoverHandler (std::function<void(int)> handler)
+        {
+            onHover = std::move (handler);
+        }
+
         void setSourceFile (const juce::File& file)
         {
             currentFile = file;
@@ -761,6 +809,22 @@ namespace
             if (currentFile.existsAsFile())
                 thumbnail.setSource (new juce::FileInputSource (currentFile));
 
+            repaint();
+        }
+
+        void setSliceFlags (bool locked, bool deleted, bool reversed)
+        {
+            isLocked = locked;
+            isDeleted = deleted;
+            isReversed = reversed;
+            repaint();
+        }
+
+        void setHighlighted (bool shouldHighlight)
+        {
+            if (highlighted == shouldHighlight)
+                return;
+            highlighted = shouldHighlight;
             repaint();
         }
 
@@ -775,7 +839,13 @@ namespace
         juce::File currentFile;
         std::function<void(int)> onClick;
         std::function<void(int)> onRightClick;
+        std::function<void(int)> onHover;
         bool suppressClick = false;
+        bool isLocked = false;
+        bool isDeleted = false;
+        bool isReversed = false;
+        bool highlighted = false;
+        juce::Drawable* lockDrawable = nullptr;
     };
 
     class PreviewGrid final : public juce::Component
@@ -784,9 +854,19 @@ namespace
         PreviewGrid()
         {
             formatManager.registerBasicFormats();
+            lockDrawable = createDrawableFromBinaryData ("lock.svg");
+            if (lockDrawable != nullptr)
+            {
+                lockDrawable->replaceColour (juce::Colours::black, juce::Colours::white);
+                lockDrawable->replaceColour (juce::Colour (0xff000000), juce::Colours::white);
+            }
             for (int index = 0; index < totalCells; ++index)
             {
-                auto cell = std::make_unique<GridCell> (index, formatManager, thumbnailCache, nullptr);
+                auto cell = std::make_unique<GridCell> (index,
+                                                        formatManager,
+                                                        thumbnailCache,
+                                                        nullptr,
+                                                        lockDrawable.get());
                 addAndMakeVisible (*cell);
                 cells.add (std::move (cell));
             }
@@ -804,6 +884,12 @@ namespace
                 cell->setRightClickHandler (handler);
         }
 
+        void setCellHoverHandler (std::function<void(int)> handler)
+        {
+            for (auto* cell : cells)
+                cell->setHoverHandler (handler);
+        }
+
         void setSliceFiles (const std::vector<juce::File>& files)
         {
             thumbnailCache.clear();
@@ -814,6 +900,39 @@ namespace
                 else
                     cells[index]->setSourceFile (juce::File());
             }
+        }
+
+        void setSliceInfos (const std::vector<SliceStateStore::SliceInfo>& sliceInfos)
+        {
+            for (int index = 0; index < totalCells; ++index)
+            {
+                if (index < static_cast<int> (sliceInfos.size()))
+                {
+                    const auto& info = sliceInfos[static_cast<std::size_t> (index)];
+                    cells[index]->setSliceFlags (info.isLocked, info.isDeleted, info.isReversed);
+                }
+                else
+                {
+                    cells[index]->setSliceFlags (false, false, false);
+                }
+            }
+        }
+
+        void setPendingState (bool isPending, int sourceIndexToUse)
+        {
+            pendingActive = isPending;
+            pendingSourceIndex = sourceIndexToUse;
+            if (! pendingActive)
+                hoverIndex = -1;
+            updateHighlights();
+        }
+
+        void setHoverIndex (int index)
+        {
+            if (hoverIndex == index)
+                return;
+            hoverIndex = index;
+            updateHighlights();
         }
 
         juce::Rectangle<int> getCellBounds (int index) const
@@ -839,6 +958,43 @@ namespace
         }
 
     private:
+        void updateHighlights()
+        {
+            for (int index = 0; index < cells.size(); ++index)
+            {
+                const bool shouldHighlight =
+                    pendingActive && hoverIndex == index && hoverIndex != pendingSourceIndex;
+                cells[index]->setHighlighted (shouldHighlight);
+            }
+        }
+
+        static std::unique_ptr<juce::Drawable> createDrawableFromBinaryData (const juce::String& fileName)
+        {
+            juce::String resourceName = fileName.replaceCharacter ('.', '_');
+            resourceName = resourceName.replaceCharacter ('-', '_');
+
+            int dataSize = 0;
+            const void* data = BinaryData::getNamedResource (resourceName.toRawUTF8(), dataSize);
+            if (data == nullptr || dataSize <= 0)
+                return nullptr;
+
+            juce::MemoryInputStream stream (data, static_cast<size_t> (dataSize), false);
+            if (fileName.endsWithIgnoreCase (".svg"))
+            {
+                const juce::String svgText = stream.readString();
+                juce::XmlDocument svgDocument (svgText);
+                std::unique_ptr<juce::XmlElement> svgXml (svgDocument.getDocumentElement());
+                if (svgXml != nullptr)
+                    return juce::Drawable::createFromSVG (*svgXml);
+                return nullptr;
+            }
+
+            auto image = juce::ImageFileFormat::loadFrom (stream);
+            if (image.isValid())
+                return std::make_unique<juce::DrawableImage> (image);
+            return nullptr;
+        }
+
         static constexpr int columns = 4;
         static constexpr int rows = 4;
         static constexpr int totalCells = columns * rows;
@@ -849,6 +1005,10 @@ namespace
         juce::AudioFormatManager formatManager;
         juce::AudioThumbnailCache thumbnailCache { 32 };
         juce::OwnedArray<GridCell> cells;
+        std::unique_ptr<juce::Drawable> lockDrawable;
+        bool pendingActive = false;
+        int pendingSourceIndex = -1;
+        int hoverIndex = -1;
     };
 
     class ActionBar final : public juce::Component
@@ -1153,6 +1313,7 @@ namespace
                         }
                         focusPlaceholder.setSourceFile (snapshot.previewSnippetURLs.front(), durationSeconds);
                         grid.setSliceFiles (snapshot.previewSnippetURLs);
+                        grid.setSliceInfos (snapshot.sliceInfos);
                     }
 
                     setStatusText ("Slice all complete.");
@@ -1239,6 +1400,11 @@ namespace
                 {
                     if (pendingResult.actionResult.statusText.isNotEmpty())
                         setStatusText (pendingResult.actionResult.statusText);
+                    const auto snapshot = stateStore.getSnapshot();
+                    grid.setSliceFiles (snapshot.previewSnippetURLs);
+                    grid.setSliceInfos (snapshot.sliceInfos);
+                    grid.setPendingState (sliceContextState.pendingOperation != SliceContextState::PendingOperation::none,
+                                          sliceContextState.pendingSourceSliceIndex);
                     contextOverlay.hide();
                     return;
                 }
@@ -1261,12 +1427,22 @@ namespace
                 playSliceAtIndex (index);
             });
 
+            grid.setCellHoverHandler ([this] (int index)
+            {
+                grid.setPendingState (sliceContextState.pendingOperation != SliceContextState::PendingOperation::none,
+                                      sliceContextState.pendingSourceSliceIndex);
+                if (sliceContextState.pendingOperation == SliceContextState::PendingOperation::none)
+                    return;
+                grid.setHoverIndex (index);
+            });
+
             grid.setCellRightClickHandler ([this] (int index)
             {
                 const auto bounds = grid.getCellBounds (index);
                 if (bounds.isEmpty())
                     return;
 
+                playSliceAtIndex (index);
                 contextOverlay.setBounds (grid.getBounds());
                 contextOverlay.showForCell (index, bounds);
             });
@@ -1325,6 +1501,11 @@ namespace
                                                               audioEngine);
                 if (result.statusText.isNotEmpty())
                     setStatusText (result.statusText);
+                const auto snapshot = stateStore.getSnapshot();
+                grid.setSliceFiles (snapshot.previewSnippetURLs);
+                grid.setSliceInfos (snapshot.sliceInfos);
+                grid.setPendingState (sliceContextState.pendingOperation != SliceContextState::PendingOperation::none,
+                                      sliceContextState.pendingSourceSliceIndex);
                 if (result.shouldDismissOverlay)
                     contextOverlay.hide();
             });

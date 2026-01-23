@@ -475,7 +475,7 @@ bool MutationOrchestrator::requestResliceAll()
     BackgroundWorker worker;
     bool rebuildOk = false;
 
-    worker.enqueue ([&, snapshot]
+    worker.enqueue ([&, snapshot, sources]
     {
         auto sliceInfos = snapshot.sliceInfos;
         auto previewSnippetURLs = snapshot.previewSnippetURLs;
@@ -495,7 +495,6 @@ bool MutationOrchestrator::requestResliceAll()
                 return;
         }
 
-        AudioFileIO audioFileIO;
         juce::Random& random = juce::Random::getSystemRandom();
 
         const int loopCount = layeringMode ? sampleCount : static_cast<int> (sliceInfos.size());
@@ -509,6 +508,7 @@ bool MutationOrchestrator::requestResliceAll()
                 const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
                 const juce::File sourceFile = sliceInfo.fileURL;
 
+                AudioFileIO audioFileIO;
                 juce::String formatDescription;
 
                 int fileDurationFrames = 0;
@@ -758,34 +758,27 @@ bool MutationOrchestrator::requestSliceAll()
 
                 juce::String formatDescription;
 
+                AudioFileIO::ConvertedAudio fileAudio;
                 int fileDurationFrames = 0;
-                const std::string cacheKey = sourceFile.getFullPathName().toStdString();
-                CachedAudio* cachedAudio = nullptr;
-
                 if (enableFullFileCache)
                 {
-                    auto [it, inserted] = fullFileCache.try_emplace (cacheKey);
-                    if (inserted)
+                    const auto filePath = sourceFile.getFullPathName();
+                    const auto cacheKey = filePath.toStdString();
+                    const auto cached = fullFileCache.find (cacheKey);
+                    if (cached != fullFileCache.end())
                     {
-                        if (! audioFileIO.readToMonoBuffer (sourceFile, it->second.converted, formatDescription))
-                        {
-                            fullFileCache.erase (it);
-                        }
-                        else
-                        {
-                            it->second.durationFrames = it->second.converted.buffer.getNumSamples();
-                        }
+                        fileAudio = cached->second.converted;
+                        fileDurationFrames = cached->second.durationFrames;
                     }
-
-                    auto found = fullFileCache.find (cacheKey);
-                    if (found != fullFileCache.end())
+                    else
                     {
-                        cachedAudio = &found->second;
-                        fileDurationFrames = cachedAudio->durationFrames;
+                        if (! audioFileIO.readToMonoBuffer (sourceFile, fileAudio, formatDescription))
+                            continue;
+                        fileDurationFrames = fileAudio.buffer.getNumSamples();
+                        fullFileCache[cacheKey] = { fileAudio, fileDurationFrames };
                     }
                 }
-
-                if (cachedAudio == nullptr)
+                else
                 {
                     if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
                         continue;
@@ -796,13 +789,13 @@ bool MutationOrchestrator::requestSliceAll()
 
                 const int subdivisionSteps = subdivisionForIndex (index);
                 const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
-                if (snippetFrameCount <= 0)
+                if (snippetFrameCount <= 0 || snippetFrameCount > fileDurationFrames)
                     continue;
-
-                const juce::File outputFile = previewTempFolder.getChildFile ("slice_" + juce::String (index) + ".wav");
 
                 const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
                 int startFrame = 0;
+
+                const juce::File outputFile = previewTempFolder.getNonexistentChildFile ("slice_" + juce::String (index), ".wav", false);
 
                 if (snapshot.transientDetectionEnabled)
                 {
@@ -813,43 +806,36 @@ bool MutationOrchestrator::requestSliceAll()
                         if (windowFrames <= 0 || windowFrames > fileDurationFrames)
                             break;
 
-                        const auto refined = [&]() -> std::optional<int>
+                        const int maxWindowStart = fileDurationFrames - windowFrames;
+                        const int cappedCandidateStart = juce::jlimit (0, maxWindowStart, maxCandidateStart);
+                        const int windowStart = random.nextInt (cappedCandidateStart + 1);
+
+                        AudioFileIO::ConvertedAudio detectionAudio;
+                        if (enableFullFileCache)
                         {
-                            if (cachedAudio != nullptr)
-                            {
-                                return refinedStart (cachedAudio->converted.buffer,
-                                                     random,
-                                                     maxCandidateStart,
-                                                     windowFrames,
-                                                     snapshot.transientDetectionEnabled);
-                            }
+                            detectionAudio = fileAudio;
+                            detectionAudio.buffer = fileAudio.buffer;
+                        }
+                        else if (! audioFileIO.readToMonoBufferSegment (sourceFile,
+                                                                        windowStart,
+                                                                        windowFrames,
+                                                                        detectionAudio,
+                                                                        formatDescription))
+                        {
+                            continue;
+                        }
 
-                            const int maxWindowStart = fileDurationFrames - windowFrames;
-                            const int cappedCandidateStart = juce::jlimit (0, maxWindowStart, maxCandidateStart);
-                            const int windowStart = random.nextInt (cappedCandidateStart + 1);
-
-                            AudioFileIO::ConvertedAudio detectionAudio;
-                            if (! audioFileIO.readToMonoBufferSegment (sourceFile,
-                                                                       windowStart,
-                                                                       windowFrames,
-                                                                       detectionAudio,
-                                                                       formatDescription))
-                                return std::nullopt;
-
-                            return refinedStartFromWindow (detectionAudio.buffer,
-                                                           windowStart,
-                                                           snapshot.transientDetectionEnabled);
-                        }();
-
+                        const auto refined = refinedStartFromWindow (detectionAudio.buffer,
+                                                                     windowStart,
+                                                                     snapshot.transientDetectionEnabled);
                         if (! refined.has_value())
                             continue;
-                        const int candidateStart = refined.value();
-                        if (candidateStart == lastStartFrame)
-                            continue;
-                        startFrame = candidateStart;
+
+                        startFrame = refined.value();
                         foundStart = true;
                         break;
                     }
+
                     if (! foundStart)
                         continue;
 
@@ -857,19 +843,16 @@ bool MutationOrchestrator::requestSliceAll()
                         continue;
 
                     AudioFileIO::ConvertedAudio sliceAudio;
-                    if (cachedAudio != nullptr)
+                    if (enableFullFileCache)
                     {
-                        if (startFrame + snippetFrameCount > cachedAudio->converted.buffer.getNumSamples())
-                            continue;
-                        sliceAudio.sampleRate = cachedAudio->converted.sampleRate;
-                        sliceAudio.buffer = juce::AudioBuffer<float> (1, snippetFrameCount);
-                        sliceAudio.buffer.copyFrom (0, 0, cachedAudio->converted.buffer, 0, startFrame, snippetFrameCount);
+                        sliceAudio = fileAudio;
+                        sliceAudio.buffer = fileAudio.buffer;
                     }
                     else if (! audioFileIO.readToMonoBufferSegment (sourceFile,
-                                                                   startFrame,
-                                                                   snippetFrameCount,
-                                                                   sliceAudio,
-                                                                   formatDescription))
+                                                                    startFrame,
+                                                                    snippetFrameCount,
+                                                                    sliceAudio,
+                                                                    formatDescription))
                     {
                         continue;
                     }
@@ -884,19 +867,16 @@ bool MutationOrchestrator::requestSliceAll()
                         continue;
 
                     AudioFileIO::ConvertedAudio sliceAudio;
-                    if (cachedAudio != nullptr)
+                    if (enableFullFileCache)
                     {
-                        if (startFrame + snippetFrameCount > cachedAudio->converted.buffer.getNumSamples())
-                            continue;
-                        sliceAudio.sampleRate = cachedAudio->converted.sampleRate;
-                        sliceAudio.buffer = juce::AudioBuffer<float> (1, snippetFrameCount);
-                        sliceAudio.buffer.copyFrom (0, 0, cachedAudio->converted.buffer, 0, startFrame, snippetFrameCount);
+                        sliceAudio = fileAudio;
+                        sliceAudio.buffer = fileAudio.buffer;
                     }
                     else if (! audioFileIO.readToMonoBufferSegment (sourceFile,
-                                                                   startFrame,
-                                                                   snippetFrameCount,
-                                                                   sliceAudio,
-                                                                   formatDescription))
+                                                                    startFrame,
+                                                                    snippetFrameCount,
+                                                                    sliceAudio,
+                                                                    formatDescription))
                     {
                         continue;
                     }
@@ -982,115 +962,120 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
         auto regenerateIndex = [&] (int targetIndex)
         {
             const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
-                       const int subdivisionToUse = sliceInfo.subdivisionSteps > 0 ? sliceInfo.subdivisionSteps : subdivisionSteps;
+            const int subdivisionToUse = sliceInfo.subdivisionSteps > 0 ? sliceInfo.subdivisionSteps : subdivisionSteps;
             const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionToUse);
             if (snippetFrameCount <= 0)
                 return false;
 
             juce::Random& random = juce::Random::getSystemRandom();
-            juce::File sourceFile;
-            if (snapshot.sourceMode == SliceStateStore::SourceMode::singleManual)
-            {
-                sourceFile = snapshot.sourceFile;
-            }
-            else if (snapshot.sourceMode == SliceStateStore::SourceMode::live)
-            {
-                if (sources.liveFiles.empty())
-                    return false;
-                sourceFile = sources.liveFiles[static_cast<std::size_t> (random.nextInt (static_cast<int> (sources.liveFiles.size())))];
-            }
-            else
-            {
-                if (sources.cacheEntries.isEmpty())
-                    return false;
-                const int entryIndex = random.nextInt (sources.cacheEntries.size());
-                const auto& entry = sources.cacheEntries.getReference (entryIndex);
-                sourceFile = juce::File (entry.path);
-            }
-
-            if (! sourceFile.existsAsFile())
-                return false;
-
-            juce::String formatDescription;
-
             const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (targetIndex)];
 
-            AudioFileIO audioFileIO;
-            int fileDurationFrames = 0;
-            if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
-                return false;
-
-             if (fileDurationFrames <= 0)
-                return false;
-
-            const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
-            int startFrame = 0;
-
-            if (snapshot.transientDetectionEnabled)
+            for (int attempt = 0; attempt < 5; ++attempt)
             {
-                bool foundStart = false;
-                for (int retry = 0; retry <= kTransientRepeatRetryCount; ++retry)
+                juce::File sourceFile;
+                if (snapshot.sourceMode == SliceStateStore::SourceMode::live)
                 {
-                    const int windowFrames = barWindowFrames (bpm);
-                    if (windowFrames <= 0 || windowFrames > fileDurationFrames)
-                        break;
-
-                    const int maxWindowStart = fileDurationFrames - windowFrames;
-                    const int cappedCandidateStart = juce::jlimit (0, maxWindowStart, maxCandidateStart);
-                    const int windowStart = random.nextInt (cappedCandidateStart + 1);
-
-                    AudioFileIO::ConvertedAudio detectionAudio;
-                    if (! audioFileIO.readToMonoBufferSegment (sourceFile,
-                                                               windowStart,
-                                                               windowFrames,
-                                                               detectionAudio,
-                                                               formatDescription))
-                        continue;
-
-                    const auto refined = refinedStartFromWindow (detectionAudio.buffer,
-                                                                 windowStart,
-                                                                 snapshot.transientDetectionEnabled);
-                    if (! refined.has_value())
-                        continue;
-
-                    startFrame = refined.value();
-                    foundStart = true;
-                    break;
+                    if (sources.liveFiles.empty())
+                        return false;
+                    sourceFile = sources.liveFiles[static_cast<std::size_t> (random.nextInt (static_cast<int> (sources.liveFiles.size())))];
+                }
+                else if (snapshot.sourceMode == SliceStateStore::SourceMode::singleManual)
+                {
+                    sourceFile = snapshot.sourceFile;
+                }
+                else if (sliceInfo.fileURL.existsAsFile())
+                {
+                    sourceFile = sliceInfo.fileURL;
+                }
+                else if (! sources.cacheEntries.isEmpty())
+                {
+                    const int entryIndex = random.nextInt (sources.cacheEntries.size());
+                    const auto& entry = sources.cacheEntries.getReference (entryIndex);
+                    sourceFile = juce::File (entry.path);
                 }
 
-                if (! foundStart)
-                    return false;
+                if (! sourceFile.existsAsFile())
+                    continue;
+
+                juce::String formatDescription;
+
+                AudioFileIO audioFileIO;
+                int fileDurationFrames = 0;
+                if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
+                    continue;
+
+                if (fileDurationFrames <= 0)
+                    continue;
+
+                const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
+                int startFrame = 0;
+
+                if (snapshot.transientDetectionEnabled)
+                {
+                    bool foundStart = false;
+                    for (int retry = 0; retry <= kTransientRepeatRetryCount; ++retry)
+                    {
+                        const int windowFrames = barWindowFrames (bpm);
+                        if (windowFrames <= 0 || windowFrames > fileDurationFrames)
+                            break;
+
+                        const int maxWindowStart = fileDurationFrames - windowFrames;
+                        const int cappedCandidateStart = juce::jlimit (0, maxWindowStart, maxCandidateStart);
+                        const int windowStart = random.nextInt (cappedCandidateStart + 1);
+
+                        AudioFileIO::ConvertedAudio detectionAudio;
+                        if (! audioFileIO.readToMonoBufferSegment (sourceFile,
+                                                                   windowStart,
+                                                                   windowFrames,
+                                                                   detectionAudio,
+                                                                   formatDescription))
+                            continue;
+
+                        const auto refined = refinedStartFromWindow (detectionAudio.buffer,
+                                                                     windowStart,
+                                                                     snapshot.transientDetectionEnabled);
+                        if (! refined.has_value())
+                            continue;
+
+                        startFrame = refined.value();
+                        foundStart = true;
+                        break;
+                    }
+
+                    if (! foundStart)
+                        continue;
+                }
+                else
+                {
+                    startFrame = random.nextInt (maxCandidateStart + 1);
+                }
+
+                if (startFrame + snippetFrameCount > fileDurationFrames)
+                    continue;
+
+                AudioFileIO::ConvertedAudio sliceAudio;
+                if (! audioFileIO.readToMonoBufferSegment (sourceFile,
+                                                           startFrame,
+                                                           snippetFrameCount,
+                                                           sliceAudio,
+                                                           formatDescription))
+                    continue;
+                if (sliceInfo.isReversed)
+                    reverseMonoBuffer (sliceAudio.buffer);
+
+                if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
+                    continue;
+
+                SliceStateStore::SliceInfo updatedInfo = sliceInfo;
+                updatedInfo.fileURL = sourceFile;
+                updatedInfo.startFrame = startFrame;
+                updatedInfo.snippetFrameCount = snippetFrameCount;
+                updatedInfo.subdivisionSteps = subdivisionToUse;
+                sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
+                return true;
             }
-            else
-            {
-                startFrame = random.nextInt (maxCandidateStart + 1);
-            }
 
-            if (startFrame + snippetFrameCount > fileDurationFrames)
-                return false;
-
-                       AudioFileIO::ConvertedAudio sliceAudio;
-            if (! audioFileIO.readToMonoBufferSegment (sourceFile,
-                                                       startFrame,
-                                                       snippetFrameCount,
-                                                       sliceAudio,
-                                                       formatDescription))
-                return false;
-                           if (sliceInfo.isReversed)
-                reverseMonoBuffer (sliceAudio.buffer);
-
-
-            if (! audioFileIO.writeMonoWav16 (outputFile, sliceAudio))
-                return false;
-
-            SliceStateStore::SliceInfo updatedInfo = sliceInfo;
-                   updatedInfo.fileURL = sourceFile;
-            updatedInfo.startFrame = startFrame;
-            
-            updatedInfo.snippetFrameCount = snippetFrameCount;
-             updatedInfo.subdivisionSteps = subdivisionToUse;
-            sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
-            return true;
+            return false;
         };
 
         if (! regenerateIndex (leftIndex))

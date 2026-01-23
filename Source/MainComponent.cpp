@@ -713,17 +713,7 @@ namespace
             {
                 const auto waveformBounds = getLocalBounds().reduced (4);
                 g.setColour (juce::Colours::lightgrey);
-                if (isReversed)
-                {
-                    juce::Graphics::ScopedSaveState state (g);
-                    g.addTransform (juce::AffineTransform::scale (-1.0f, 1.0f)
-                                        .translated (-static_cast<float> (getWidth()), 0.0f));
-                    thumbnail.drawChannels (g, waveformBounds, 0.0, thumbnail.getTotalLength(), 1.0f);
-                }
-                else
-                {
-                    thumbnail.drawChannels (g, waveformBounds, 0.0, thumbnail.getTotalLength(), 1.0f);
-                }
+                thumbnail.drawChannels (g, waveformBounds, 0.0, thumbnail.getTotalLength(), 1.0f);
             }
             else
             {
@@ -812,11 +802,10 @@ namespace
             repaint();
         }
 
-        void setSliceFlags (bool locked, bool deleted, bool reversed)
+        void setSliceFlags (bool locked, bool deleted)
         {
             isLocked = locked;
             isDeleted = deleted;
-            isReversed = reversed;
             repaint();
         }
 
@@ -843,7 +832,6 @@ namespace
         bool suppressClick = false;
         bool isLocked = false;
         bool isDeleted = false;
-        bool isReversed = false;
         bool highlighted = false;
         juce::Drawable* lockDrawable = nullptr;
     };
@@ -909,11 +897,11 @@ namespace
                 if (index < static_cast<int> (sliceInfos.size()))
                 {
                     const auto& info = sliceInfos[static_cast<std::size_t> (index)];
-                    cells[index]->setSliceFlags (info.isLocked, info.isDeleted, info.isReversed);
+                    cells[index]->setSliceFlags (info.isLocked, info.isDeleted);
                 }
                 else
                 {
-                    cells[index]->setSliceFlags (false, false, false);
+                    cells[index]->setSliceFlags (false, false);
                 }
             }
         }
@@ -1506,6 +1494,21 @@ namespace
                 grid.setSliceInfos (snapshot.sliceInfos);
                 grid.setPendingState (sliceContextState.pendingOperation != SliceContextState::PendingOperation::none,
                                       sliceContextState.pendingSourceSliceIndex);
+                if (focusedSliceIndex == index)
+                {
+                    if (index >= 0 && index < static_cast<int> (snapshot.previewSnippetURLs.size()))
+                    {
+                        double durationSeconds = 0.0;
+                        if (index < static_cast<int> (snapshot.sliceInfos.size()))
+                        {
+                            durationSeconds =
+                                static_cast<double> (snapshot.sliceInfos[static_cast<std::size_t> (index)].snippetFrameCount)
+                                / FocusPreviewArea::kTargetSampleRate;
+                        }
+                        focusPlaceholder.setSourceFile (snapshot.previewSnippetURLs[static_cast<std::size_t> (index)],
+                                                        durationSeconds);
+                    }
+                }
                 if (result.shouldDismissOverlay)
                     contextOverlay.hide();
             });

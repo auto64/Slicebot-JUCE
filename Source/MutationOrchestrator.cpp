@@ -166,6 +166,39 @@ namespace {
         return sources;
     }
 
+    SlicingSources getLiveSources (const AudioEngine* audioEngine)
+    {
+        SlicingSources sources;
+        sources.sourceMode = SliceStateStore::SourceMode::live;
+
+        if (audioEngine == nullptr)
+        {
+            sources.emptyReason = "LIVE slicing is unavailable.";
+            return sources;
+        }
+
+        bool anySelected = false;
+        for (int index = 0; index < RecordingBus::kNumRecorders; ++index)
+        {
+            if (! audioEngine->isRecorderIncludeInGenerationEnabled (index))
+                continue;
+
+            anySelected = true;
+            const auto recorderFile = RecordingModule::getRecorderFile (index);
+            if (recorderFile.existsAsFile())
+                sources.liveFiles.push_back (recorderFile);
+        }
+
+        if (sources.liveFiles.empty())
+        {
+            sources.emptyReason = anySelected
+                                      ? "Selected LIVE recorders have no audio to slice."
+                                      : "No LIVE recorders are selected for slicing.";
+        }
+
+        return sources;
+    }
+
     bool warnIfMissingLiveSources (const SlicingSources& sources)
     {
         if (sources.sourceMode != SliceStateStore::SourceMode::live || sources.hasSources())
@@ -327,9 +360,6 @@ bool MutationOrchestrator::requestResliceSingle (int index)
         return false;
 
     const auto snapshot = stateStore.getSnapshot();
-    const auto sources = getCurrentSlicingSources (snapshot, audioEngine);
-    if (warnIfMissingLiveSources (sources))
-        return false;
 
     BackgroundWorker worker;
     bool rebuildOk = false;
@@ -368,7 +398,6 @@ bool MutationOrchestrator::requestResliceSingle (int index)
 
             AudioFileIO audioFileIO;
             juce::String formatDescription;
-
             int fileDurationFrames = 0;
             if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
                 return false;
@@ -482,9 +511,6 @@ bool MutationOrchestrator::requestResliceAll()
         return false;
 
     const auto snapshot = stateStore.getSnapshot();
-    const auto sources = getCurrentSlicingSources (snapshot, audioEngine);
-    if (warnIfMissingLiveSources (sources))
-        return false;
 
     BackgroundWorker worker;
     bool rebuildOk = false;
@@ -988,9 +1014,6 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
         return false;
 
     const auto snapshot = stateStore.getSnapshot();
-    const auto sources = getCurrentSlicingSources (snapshot, audioEngine);
-    if (warnIfMissingLiveSources (sources))
-        return false;
 
     BackgroundWorker worker;
     bool rebuildOk = false;
@@ -1030,6 +1053,14 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
             if (snippetFrameCount <= 0)
                 return false;
 
+            std::optional<SlicingSources> liveSources;
+            if (sourceModeToUse == SliceStateStore::SourceMode::live)
+            {
+                liveSources = getLiveSources (audioEngine);
+                if (warnIfMissingLiveSources (*liveSources))
+                    return false;
+            }
+
             std::vector<juce::String> candidatePaths = sliceInfo.candidatePaths;
             if (candidatePaths.empty()
                 && (sourceModeToUse == SliceStateStore::SourceMode::multi
@@ -1043,7 +1074,8 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
                 }
             }
 
-            if (sourceModeToUse == SliceStateStore::SourceMode::live && sources.liveFiles.empty())
+            if (sourceModeToUse == SliceStateStore::SourceMode::live
+                && (! liveSources.has_value() || liveSources->liveFiles.empty()))
                 return false;
             if (sourceModeToUse == SliceStateStore::SourceMode::singleManual && ! sliceInfo.fileURL.existsAsFile())
                 return false;
@@ -1062,7 +1094,8 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
                 juce::File sourceFile;
                 if (sourceModeToUse == SliceStateStore::SourceMode::live)
                 {
-                    sourceFile = sources.liveFiles[static_cast<std::size_t> (random.nextInt (static_cast<int> (sources.liveFiles.size())))];
+                    sourceFile = liveSources->liveFiles[static_cast<std::size_t> (
+                        random.nextInt (static_cast<int> (liveSources->liveFiles.size())))];
                 }
                 else if (sourceModeToUse == SliceStateStore::SourceMode::singleManual)
                 {
@@ -1188,9 +1221,6 @@ bool MutationOrchestrator::requestRegenerateAll()
         return false;
 
     const auto snapshot = stateStore.getSnapshot();
-    const auto sources = getCurrentSlicingSources (snapshot, audioEngine);
-    if (warnIfMissingLiveSources (sources))
-        return false;
 
     BackgroundWorker worker;
     bool rebuildOk = false;

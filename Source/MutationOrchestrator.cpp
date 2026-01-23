@@ -22,6 +22,7 @@ namespace {
     constexpr float kPachinkoPitchShiftMin = -12.0f;
     constexpr float kPachinkoPitchShiftMax = 12.0f;
     constexpr int kTransientRepeatRetryCount = 4;
+    constexpr int kRegenerateRetryLimit = 500;
 
     double resolvedBpm (double bpm)
     {
@@ -967,16 +968,26 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
             if (snippetFrameCount <= 0)
                 return false;
 
+            if (snapshot.sourceMode == SliceStateStore::SourceMode::live && sources.liveFiles.empty())
+                return false;
+            if (snapshot.sourceMode == SliceStateStore::SourceMode::singleManual && ! snapshot.sourceFile.existsAsFile())
+                return false;
+            if (snapshot.sourceMode != SliceStateStore::SourceMode::live
+                && snapshot.sourceMode != SliceStateStore::SourceMode::singleManual
+                && ! sliceInfo.fileURL.existsAsFile()
+                && sources.cacheEntries.isEmpty())
+            {
+                return false;
+            }
+
             juce::Random& random = juce::Random::getSystemRandom();
             const juce::File outputFile = previewSnippetURLs[static_cast<std::size_t> (targetIndex)];
 
-            for (int attempt = 0; attempt < 5; ++attempt)
+            for (int attempt = 0; attempt < kRegenerateRetryLimit; ++attempt)
             {
                 juce::File sourceFile;
                 if (snapshot.sourceMode == SliceStateStore::SourceMode::live)
                 {
-                    if (sources.liveFiles.empty())
-                        return false;
                     sourceFile = sources.liveFiles[static_cast<std::size_t> (random.nextInt (static_cast<int> (sources.liveFiles.size())))];
                 }
                 else if (snapshot.sourceMode == SliceStateStore::SourceMode::singleManual)

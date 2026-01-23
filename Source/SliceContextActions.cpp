@@ -218,13 +218,6 @@ SliceContextActionResult handleSliceContextAction (SliceContextAction action,
             MutationOrchestrator orchestrator (stateStore, &audioEngine);
             bool ok = orchestrator.requestRegenerateSingle (index);
             if (! ok)
-            {
-                const auto& previewFile = snapshot.previewSnippetURLs[static_cast<std::size_t> (index)];
-                ok = rebuildPreviewFromSource (sliceInfo, previewFile, sliceInfo.isReversed);
-                if (ok)
-                    ok = rebuildPreviewChain (stateStore);
-            }
-            if (! ok)
                 return makeResult (sliceLabel + "regen failed.");
             if (sliceInfo.isDeleted)
             {

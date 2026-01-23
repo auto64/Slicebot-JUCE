@@ -31,6 +31,12 @@ public:
         int startFrame = 0;
         int subdivisionSteps = 0;
         int snippetFrameCount = 0;
+        SourceMode sourceMode = SourceMode::multi;
+        double bpm = 128.0;
+        bool transientDetectionEnabled = true;
+        juce::String sourcePath;
+        bool sourceIsDirectory = false;
+        std::vector<juce::String> candidatePaths;
         bool isLocked = false;
         bool isDeleted = false;
         bool isReversed = false;

@@ -434,6 +434,22 @@ bool MutationOrchestrator::requestResliceSingle (int index)
             SliceStateStore::SliceInfo updatedInfo = sliceInfo;
             updatedInfo.startFrame = startFrame;
             updatedInfo.snippetFrameCount = snippetFrameCount;
+            updatedInfo.sourceMode = snapshot.sourceMode;
+            updatedInfo.bpm = snapshot.bpm;
+            updatedInfo.transientDetectionEnabled = snapshot.transientDetectionEnabled;
+            updatedInfo.sourcePath = snapshot.cacheData.sourcePath;
+            updatedInfo.sourceIsDirectory = snapshot.cacheData.isDirectorySource;
+            updatedInfo.candidatePaths.clear();
+            if (snapshot.sourceMode == SliceStateStore::SourceMode::multi
+                || snapshot.sourceMode == SliceStateStore::SourceMode::singleRandom)
+            {
+                updatedInfo.candidatePaths.reserve (static_cast<std::size_t> (snapshot.cacheData.entries.size()));
+                for (const auto& entry : snapshot.cacheData.entries)
+                {
+                    if (entry.isCandidate)
+                        updatedInfo.candidatePaths.push_back (entry.path);
+                }
+            }
             sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
             return true;
         };
@@ -450,11 +466,8 @@ bool MutationOrchestrator::requestResliceSingle (int index)
         stateStore.setAlignedSlices (std::move (sliceInfos),
                                      std::move (previewSnippetURLs),
                                      std::move (sliceVolumeSettings));
-
-        PreviewChainOrchestrator previewChain (stateStore);
-        rebuildOk = previewChain.rebuildPreviewChain();
-        if (rebuildOk)
-            clearStutterUndoBackup();
+        clearStutterUndoBackup();
+        rebuildOk = true;
     });
 
     return rebuildOk;
@@ -476,7 +489,7 @@ bool MutationOrchestrator::requestResliceAll()
     BackgroundWorker worker;
     bool rebuildOk = false;
 
-    worker.enqueue ([&, snapshot, sources]
+    worker.enqueue ([&, snapshot]
     {
         auto sliceInfos = snapshot.sliceInfos;
         auto previewSnippetURLs = snapshot.previewSnippetURLs;
@@ -496,6 +509,7 @@ bool MutationOrchestrator::requestResliceAll()
                 return;
         }
 
+        AudioFileIO audioFileIO;
         juce::Random& random = juce::Random::getSystemRandom();
 
         const int loopCount = layeringMode ? sampleCount : static_cast<int> (sliceInfos.size());
@@ -509,7 +523,6 @@ bool MutationOrchestrator::requestResliceAll()
                 const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
                 const juce::File sourceFile = sliceInfo.fileURL;
 
-                AudioFileIO audioFileIO;
                 juce::String formatDescription;
 
                 int fileDurationFrames = 0;
@@ -577,6 +590,22 @@ bool MutationOrchestrator::requestResliceAll()
                 SliceStateStore::SliceInfo updatedInfo = sliceInfo;
                 updatedInfo.startFrame = startFrame;
                 updatedInfo.snippetFrameCount = snippetFrameCount;
+                updatedInfo.sourceMode = snapshot.sourceMode;
+                updatedInfo.bpm = snapshot.bpm;
+                updatedInfo.transientDetectionEnabled = snapshot.transientDetectionEnabled;
+                updatedInfo.sourcePath = snapshot.cacheData.sourcePath;
+                updatedInfo.sourceIsDirectory = snapshot.cacheData.isDirectorySource;
+                updatedInfo.candidatePaths.clear();
+                if (snapshot.sourceMode == SliceStateStore::SourceMode::multi
+                    || snapshot.sourceMode == SliceStateStore::SourceMode::singleRandom)
+                {
+                    updatedInfo.candidatePaths.reserve (static_cast<std::size_t> (snapshot.cacheData.entries.size()));
+                    for (const auto& entry : snapshot.cacheData.entries)
+                    {
+                        if (entry.isCandidate)
+                            updatedInfo.candidatePaths.push_back (entry.path);
+                    }
+                }
                 sliceInfos[static_cast<std::size_t> (targetIndex)] = updatedInfo;
                 return true;
             };
@@ -594,11 +623,8 @@ bool MutationOrchestrator::requestResliceAll()
         stateStore.setAlignedSlices (std::move (sliceInfos),
                                      std::move (previewSnippetURLs),
                                      std::move (sliceVolumeSettings));
-
-        PreviewChainOrchestrator previewChain (stateStore);
-        rebuildOk = previewChain.rebuildPreviewChain();
-        if (rebuildOk)
-            clearStutterUndoBackup();
+        clearStutterUndoBackup();
+        rebuildOk = true;
     });
 
     return rebuildOk;
@@ -759,27 +785,34 @@ bool MutationOrchestrator::requestSliceAll()
 
                 juce::String formatDescription;
 
-                AudioFileIO::ConvertedAudio fileAudio;
                 int fileDurationFrames = 0;
+                const std::string cacheKey = sourceFile.getFullPathName().toStdString();
+                CachedAudio* cachedAudio = nullptr;
+
                 if (enableFullFileCache)
                 {
-                    const auto filePath = sourceFile.getFullPathName();
-                    const auto cacheKey = filePath.toStdString();
-                    const auto cached = fullFileCache.find (cacheKey);
-                    if (cached != fullFileCache.end())
+                    auto [it, inserted] = fullFileCache.try_emplace (cacheKey);
+                    if (inserted)
                     {
-                        fileAudio = cached->second.converted;
-                        fileDurationFrames = cached->second.durationFrames;
+                        if (! audioFileIO.readToMonoBuffer (sourceFile, it->second.converted, formatDescription))
+                        {
+                            fullFileCache.erase (it);
+                        }
+                        else
+                        {
+                            it->second.durationFrames = it->second.converted.buffer.getNumSamples();
+                        }
                     }
-                    else
+
+                    auto found = fullFileCache.find (cacheKey);
+                    if (found != fullFileCache.end())
                     {
-                        if (! audioFileIO.readToMonoBuffer (sourceFile, fileAudio, formatDescription))
-                            continue;
-                        fileDurationFrames = fileAudio.buffer.getNumSamples();
-                        fullFileCache[cacheKey] = { fileAudio, fileDurationFrames };
+                        cachedAudio = &found->second;
+                        fileDurationFrames = cachedAudio->durationFrames;
                     }
                 }
-                else
+
+                if (cachedAudio == nullptr)
                 {
                     if (! audioFileIO.getFileDurationFrames (sourceFile, fileDurationFrames, formatDescription))
                         continue;
@@ -790,13 +823,13 @@ bool MutationOrchestrator::requestSliceAll()
 
                 const int subdivisionSteps = subdivisionForIndex (index);
                 const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionSteps);
-                if (snippetFrameCount <= 0 || snippetFrameCount > fileDurationFrames)
+                if (snippetFrameCount <= 0)
                     continue;
+
+                const juce::File outputFile = previewTempFolder.getChildFile ("slice_" + juce::String (index) + ".wav");
 
                 const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
                 int startFrame = 0;
-
-                const juce::File outputFile = previewTempFolder.getNonexistentChildFile ("slice_" + juce::String (index), ".wav", false);
 
                 if (snapshot.transientDetectionEnabled)
                 {
@@ -807,36 +840,43 @@ bool MutationOrchestrator::requestSliceAll()
                         if (windowFrames <= 0 || windowFrames > fileDurationFrames)
                             break;
 
-                        const int maxWindowStart = fileDurationFrames - windowFrames;
-                        const int cappedCandidateStart = juce::jlimit (0, maxWindowStart, maxCandidateStart);
-                        const int windowStart = random.nextInt (cappedCandidateStart + 1);
-
-                        AudioFileIO::ConvertedAudio detectionAudio;
-                        if (enableFullFileCache)
+                        const auto refined = [&]() -> std::optional<int>
                         {
-                            detectionAudio = fileAudio;
-                            detectionAudio.buffer = fileAudio.buffer;
-                        }
-                        else if (! audioFileIO.readToMonoBufferSegment (sourceFile,
-                                                                        windowStart,
-                                                                        windowFrames,
-                                                                        detectionAudio,
-                                                                        formatDescription))
-                        {
-                            continue;
-                        }
+                            if (cachedAudio != nullptr)
+                            {
+                                return refinedStart (cachedAudio->converted.buffer,
+                                                     random,
+                                                     maxCandidateStart,
+                                                     windowFrames,
+                                                     snapshot.transientDetectionEnabled);
+                            }
 
-                        const auto refined = refinedStartFromWindow (detectionAudio.buffer,
-                                                                     windowStart,
-                                                                     snapshot.transientDetectionEnabled);
+                            const int maxWindowStart = fileDurationFrames - windowFrames;
+                            const int cappedCandidateStart = juce::jlimit (0, maxWindowStart, maxCandidateStart);
+                            const int windowStart = random.nextInt (cappedCandidateStart + 1);
+
+                            AudioFileIO::ConvertedAudio detectionAudio;
+                            if (! audioFileIO.readToMonoBufferSegment (sourceFile,
+                                                                       windowStart,
+                                                                       windowFrames,
+                                                                       detectionAudio,
+                                                                       formatDescription))
+                                return std::nullopt;
+
+                            return refinedStartFromWindow (detectionAudio.buffer,
+                                                           windowStart,
+                                                           snapshot.transientDetectionEnabled);
+                        }();
+
                         if (! refined.has_value())
                             continue;
-
-                        startFrame = refined.value();
+                        const int candidateStart = refined.value();
+                        if (candidateStart == lastStartFrame)
+                            continue;
+                        startFrame = candidateStart;
                         foundStart = true;
                         break;
                     }
-
                     if (! foundStart)
                         continue;
 
@@ -844,16 +884,19 @@ bool MutationOrchestrator::requestSliceAll()
                         continue;
 
                     AudioFileIO::ConvertedAudio sliceAudio;
-                    if (enableFullFileCache)
+                    if (cachedAudio != nullptr)
                     {
-                        sliceAudio = fileAudio;
-                        sliceAudio.buffer = fileAudio.buffer;
+                        if (startFrame + snippetFrameCount > cachedAudio->converted.buffer.getNumSamples())
+                            continue;
+                        sliceAudio.sampleRate = cachedAudio->converted.sampleRate;
+                        sliceAudio.buffer = juce::AudioBuffer<float> (1, snippetFrameCount);
+                        sliceAudio.buffer.copyFrom (0, 0, cachedAudio->converted.buffer, 0, startFrame, snippetFrameCount);
                     }
                     else if (! audioFileIO.readToMonoBufferSegment (sourceFile,
-                                                                    startFrame,
-                                                                    snippetFrameCount,
-                                                                    sliceAudio,
-                                                                    formatDescription))
+                                                                   startFrame,
+                                                                   snippetFrameCount,
+                                                                   sliceAudio,
+                                                                   formatDescription))
                     {
                         continue;
                     }
@@ -868,16 +911,19 @@ bool MutationOrchestrator::requestSliceAll()
                         continue;
 
                     AudioFileIO::ConvertedAudio sliceAudio;
-                    if (enableFullFileCache)
+                    if (cachedAudio != nullptr)
                     {
-                        sliceAudio = fileAudio;
-                        sliceAudio.buffer = fileAudio.buffer;
+                        if (startFrame + snippetFrameCount > cachedAudio->converted.buffer.getNumSamples())
+                            continue;
+                        sliceAudio.sampleRate = cachedAudio->converted.sampleRate;
+                        sliceAudio.buffer = juce::AudioBuffer<float> (1, snippetFrameCount);
+                        sliceAudio.buffer.copyFrom (0, 0, cachedAudio->converted.buffer, 0, startFrame, snippetFrameCount);
                     }
                     else if (! audioFileIO.readToMonoBufferSegment (sourceFile,
-                                                                    startFrame,
-                                                                    snippetFrameCount,
-                                                                    sliceAudio,
-                                                                    formatDescription))
+                                                                   startFrame,
+                                                                   snippetFrameCount,
+                                                                   sliceAudio,
+                                                                   formatDescription))
                     {
                         continue;
                     }
@@ -891,6 +937,19 @@ bool MutationOrchestrator::requestSliceAll()
                 info.startFrame = startFrame;
                 info.subdivisionSteps = subdivisionSteps;
                 info.snippetFrameCount = snippetFrameCount;
+                info.sourceMode = snapshot.sourceMode;
+                info.bpm = snapshot.bpm;
+                info.transientDetectionEnabled = snapshot.transientDetectionEnabled;
+                info.sourcePath = snapshot.cacheData.sourcePath;
+                info.sourceIsDirectory = snapshot.cacheData.isDirectorySource;
+                info.candidatePaths.clear();
+                if (snapshot.sourceMode == SliceStateStore::SourceMode::multi
+                    || snapshot.sourceMode == SliceStateStore::SourceMode::singleRandom)
+                {
+                    info.candidatePaths.reserve (static_cast<std::size_t> (sources.cacheEntries.size()));
+                    for (const auto& entry : sources.cacheEntries)
+                        info.candidatePaths.push_back (entry.path);
+                }
 
                 sliceInfos.push_back (info);
                 previewSnippetURLs.push_back (outputFile);
@@ -963,19 +1022,34 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
         auto regenerateIndex = [&] (int targetIndex)
         {
             const auto& sliceInfo = sliceInfos[static_cast<std::size_t> (targetIndex)];
+            const auto sourceModeToUse = sliceInfo.sourceMode;
+            const double bpmToUse = sliceInfo.bpm > 0.0 ? sliceInfo.bpm : bpm;
+            const bool transientDetectEnabled = sliceInfo.transientDetectionEnabled;
             const int subdivisionToUse = sliceInfo.subdivisionSteps > 0 ? sliceInfo.subdivisionSteps : subdivisionSteps;
-            const int snippetFrameCount = subdivisionToFrameCount (bpm, subdivisionToUse);
+            const int snippetFrameCount = subdivisionToFrameCount (bpmToUse, subdivisionToUse);
             if (snippetFrameCount <= 0)
                 return false;
 
-            if (snapshot.sourceMode == SliceStateStore::SourceMode::live && sources.liveFiles.empty())
+            std::vector<juce::String> candidatePaths = sliceInfo.candidatePaths;
+            if (candidatePaths.empty()
+                && (sourceModeToUse == SliceStateStore::SourceMode::multi
+                    || sourceModeToUse == SliceStateStore::SourceMode::singleRandom))
+            {
+                candidatePaths.reserve (static_cast<std::size_t> (snapshot.cacheData.entries.size()));
+                for (const auto& entry : snapshot.cacheData.entries)
+                {
+                    if (entry.isCandidate)
+                        candidatePaths.push_back (entry.path);
+                }
+            }
+
+            if (sourceModeToUse == SliceStateStore::SourceMode::live && sources.liveFiles.empty())
                 return false;
-            if (snapshot.sourceMode == SliceStateStore::SourceMode::singleManual && ! snapshot.sourceFile.existsAsFile())
+            if (sourceModeToUse == SliceStateStore::SourceMode::singleManual && ! sliceInfo.fileURL.existsAsFile())
                 return false;
-            if (snapshot.sourceMode != SliceStateStore::SourceMode::live
-                && snapshot.sourceMode != SliceStateStore::SourceMode::singleManual
-                && ! sliceInfo.fileURL.existsAsFile()
-                && sources.cacheEntries.isEmpty())
+            if (sourceModeToUse != SliceStateStore::SourceMode::live
+                && sourceModeToUse != SliceStateStore::SourceMode::singleManual
+                && candidatePaths.empty())
             {
                 return false;
             }
@@ -986,23 +1060,18 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
             for (int attempt = 0; attempt < kRegenerateRetryLimit; ++attempt)
             {
                 juce::File sourceFile;
-                if (snapshot.sourceMode == SliceStateStore::SourceMode::live)
+                if (sourceModeToUse == SliceStateStore::SourceMode::live)
                 {
                     sourceFile = sources.liveFiles[static_cast<std::size_t> (random.nextInt (static_cast<int> (sources.liveFiles.size())))];
                 }
-                else if (snapshot.sourceMode == SliceStateStore::SourceMode::singleManual)
-                {
-                    sourceFile = snapshot.sourceFile;
-                }
-                else if (sliceInfo.fileURL.existsAsFile())
+                else if (sourceModeToUse == SliceStateStore::SourceMode::singleManual)
                 {
                     sourceFile = sliceInfo.fileURL;
                 }
-                else if (! sources.cacheEntries.isEmpty())
+                else if (! candidatePaths.empty())
                 {
-                    const int entryIndex = random.nextInt (sources.cacheEntries.size());
-                    const auto& entry = sources.cacheEntries.getReference (entryIndex);
-                    sourceFile = juce::File (entry.path);
+                    const int entryIndex = random.nextInt (static_cast<int> (candidatePaths.size()));
+                    sourceFile = juce::File (candidatePaths[static_cast<std::size_t> (entryIndex)]);
                 }
 
                 if (! sourceFile.existsAsFile())
@@ -1018,15 +1087,15 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
                 if (fileDurationFrames <= 0)
                     continue;
 
-                const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpm));
+                const int maxCandidateStart = juce::jmax (0, fileDurationFrames - noGoZoneFrames (bpmToUse));
                 int startFrame = 0;
 
-                if (snapshot.transientDetectionEnabled)
+                if (transientDetectEnabled)
                 {
                     bool foundStart = false;
                     for (int retry = 0; retry <= kTransientRepeatRetryCount; ++retry)
                     {
-                        const int windowFrames = barWindowFrames (bpm);
+                        const int windowFrames = barWindowFrames (bpmToUse);
                         if (windowFrames <= 0 || windowFrames > fileDurationFrames)
                             break;
 
@@ -1044,7 +1113,7 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
 
                         const auto refined = refinedStartFromWindow (detectionAudio.buffer,
                                                                      windowStart,
-                                                                     snapshot.transientDetectionEnabled);
+                                                                     transientDetectEnabled);
                         if (! refined.has_value())
                             continue;
 
@@ -1062,6 +1131,8 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
                 }
 
                 if (startFrame + snippetFrameCount > fileDurationFrames)
+                    continue;
+                if (startFrame == sliceInfo.startFrame && fileDurationFrames > snippetFrameCount)
                     continue;
 
                 AudioFileIO::ConvertedAudio sliceAudio;
@@ -1101,11 +1172,8 @@ bool MutationOrchestrator::requestRegenerateSingle (int index)
         stateStore.setAlignedSlices (std::move (sliceInfos),
                                      std::move (previewSnippetURLs),
                                      std::move (sliceVolumeSettings));
-
-        PreviewChainOrchestrator previewChain (stateStore);
-        rebuildOk = previewChain.rebuildPreviewChain();
-        if (rebuildOk)
-            clearStutterUndoBackup();
+        clearStutterUndoBackup();
+        rebuildOk = true;
     });
 
     return rebuildOk;

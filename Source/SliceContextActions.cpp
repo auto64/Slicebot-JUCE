@@ -169,7 +169,12 @@ SliceContextActionResult handleSliceContextAction (SliceContextAction action,
     switch (action)
     {
         case SliceContextAction::lock:
-            return toggleFlag (sliceInfo.isLocked, "locked.", "unlocked.");
+        {
+            const auto result = toggleFlag (sliceInfo.isLocked, "locked.", "unlocked.");
+            if (! rebuildPreviewChain (stateStore))
+                return makeResult ("Preview chain rebuild failed.");
+            return result;
+        }
         case SliceContextAction::remove:
             if (isLocked)
                 return makeResult (sliceLabel + "is locked.");
@@ -225,6 +230,8 @@ SliceContextActionResult handleSliceContextAction (SliceContextAction action,
                 if (! writeSilentPreview (sliceInfo, previewFile))
                     return makeResult (sliceLabel + "regen failed.");
             }
+            if (! rebuildPreviewChain (stateStore))
+                return makeResult ("Preview chain rebuild failed.");
             return makeResult (sliceLabel + "regenerated.");
         }
         case SliceContextAction::swap:

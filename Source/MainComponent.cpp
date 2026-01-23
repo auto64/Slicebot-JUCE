@@ -1494,7 +1494,7 @@ namespace
                 grid.setSliceInfos (snapshot.sliceInfos);
                 grid.setPendingState (sliceContextState.pendingOperation != SliceContextState::PendingOperation::none,
                                       sliceContextState.pendingSourceSliceIndex);
-                if (focusedSliceIndex == index)
+                        if (focusedSliceIndex == index)
                 {
                     if (index >= 0 && index < static_cast<int> (snapshot.previewSnippetURLs.size()))
                     {
